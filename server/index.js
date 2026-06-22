@@ -2,7 +2,12 @@ import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import GameState from './gameLogic.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
@@ -92,6 +97,12 @@ app.post('/api/withdraw', (req, res) => {
   setTimeout(() => {
     res.json({ success: true, message: `KSH ${amount} sent to ${phoneNumber} via M-Pesa`, newBalance: user.balance });
   }, 1500);
+});
+
+// Serve frontend static files
+app.use(express.static(path.join(__dirname, '../dist')));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../dist/index.html'));
 });
 
 const PORT = process.env.PORT || 3001;

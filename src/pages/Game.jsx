@@ -78,6 +78,10 @@ export default function Game({ user, onUpdateBalance }) {
       onUpdateBalance(userRef.current.balance - amount);
     });
 
+    newSocket.on('betFailed', (reason) => {
+      alert('Bet Failed: ' + reason);
+    });
+
     newSocket.on('cashOutSuccess', (amount) => {
       setCashedOut(true);
       setWinAmount(amount);

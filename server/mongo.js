@@ -26,7 +26,9 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   phone:    { type: String, required: true },
   balance:  { type: Number, default: 500 },
-  referredBy: { type: String, default: null }
+  referredBy: { type: String, default: null },
+  xp:       { type: Number, default: 0 },
+  level:    { type: String, default: 'Bronze' }
 }, { timestamps: true });
 
 // Transaction Schema
@@ -37,5 +39,12 @@ const transactionSchema = new mongoose.Schema({
   metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
 }, { timestamps: true });
 
+// System Data Schema (for Jackpot, etc)
+const systemDataSchema = new mongoose.Schema({
+  key:   { type: String, required: true, unique: true },
+  value: { type: mongoose.Schema.Types.Mixed, required: true }
+});
+
 export const User = mongoose.models.User || mongoose.model('User', userSchema);
 export const Transaction = mongoose.models.Transaction || mongoose.model('Transaction', transactionSchema);
+export const SystemData = mongoose.models.SystemData || mongoose.model('SystemData', systemDataSchema);

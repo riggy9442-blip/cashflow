@@ -7,6 +7,14 @@ export default function Wallet({ user }) {
   const [referrals, setReferrals] = useState({ count: 0, earned: 0 });
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [balance, setBalance] = useState(user.balance);
+
+  // Deposit / Withdraw State
+  const [actionType, setActionType] = useState(null); // 'deposit' | 'withdraw' | null
+  const [amount, setAmount] = useState('');
+  const [phone, setPhone] = useState(user.phone || '');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [actionMessage, setActionMessage] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -19,6 +27,11 @@ export default function Wallet({ user }) {
         const res = await fetch(`/api/transactions/${user.username}`);
         const data = await res.json();
         if (Array.isArray(data)) setTransactions(data);
+        
+        // Also fetch latest balance
+        const bRes = await fetch(`/api/balance/${user.username}`);
+        const bData = await bRes.json();
+        if (bData.balance !== undefined) setBalance(bData.balance);
       } else {
         const res = await fetch(`/api/referrals/${user.username}`);
         const data = await res.json();
@@ -58,15 +71,87 @@ export default function Wallet({ user }) {
     return type.charAt(0).toUpperCase() + type.slice(1);
   };
 
+  const handleTransaction = async (e) => {
+    e.preventDefault();
+    if (!amount || Number(amount) < 10) return alert('Minimum amount is KSH 10');
+    if (!phone) return alert('Phone number required');
+
+    setIsProcessing(true);
+    setActionMessage(actionType === 'deposit' ? 'Awaiting M-Pesa STK Prompt on your phone...' : 'Processing withdrawal to M-Pesa...');
+    
+    try {
+      const res = await fetch(`/api/${actionType}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username, amount: Number(amount), phoneNumber: phone })
+      });
+      const data = await res.json();
+      
+      if (!res.ok) throw new Error(data.error || 'Transaction failed');
+      
+      setActionMessage('Success! ✅');
+      setBalance(data.newBalance);
+      setTimeout(() => {
+        setActionType(null);
+        setAmount('');
+        setIsProcessing(false);
+        setActionMessage('');
+        fetchData(); // Refresh tx list
+      }, 2000);
+    } catch (err) {
+      alert(err.message);
+      setIsProcessing(false);
+      setActionMessage('');
+    }
+  };
+
   return (
     <div className="container" style={{ paddingTop: '2rem', paddingBottom: '2rem' }}>
       <div className="wallet-header">
         <h1>Your Wallet</h1>
         <div className="wallet-balance-card">
           <p>Available Balance</p>
-          <h2>KSH {typeof user.balance === 'number' ? user.balance.toFixed(2) : user.balance}</h2>
+          <h2>KSH {typeof balance === 'number' ? balance.toFixed(2) : balance}</h2>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', justifyContent: 'flex-end' }}>
+            <button className="btn btn-success" onClick={() => setActionType('deposit')}>Deposit</button>
+            <button className="btn btn-secondary" onClick={() => setActionType('withdraw')}>Withdraw</button>
+          </div>
         </div>
       </div>
+
+      {actionType && (
+        <div className="action-card" style={{ marginBottom: '2rem', padding: '1.5rem', background: 'var(--bg-panel)', borderRadius: '12px', border: '1px solid var(--accent-color)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h3 style={{ margin: 0, color: actionType === 'deposit' ? 'var(--success-color)' : 'var(--accent-color)' }}>
+              {actionType === 'deposit' ? 'Deposit via M-Pesa' : 'Withdraw to M-Pesa'}
+            </h3>
+            <button onClick={() => !isProcessing && setActionType(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1.5rem' }}>&times;</button>
+          </div>
+          
+          {isProcessing ? (
+            <div style={{ textAlign: 'center', padding: '2rem' }}>
+              <div className="spinner" style={{ margin: '0 auto 1rem auto' }}></div>
+              <p style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{actionMessage}</p>
+            </div>
+          ) : (
+            <form onSubmit={handleTransaction} style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: '200px' }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>M-Pesa Number</label>
+                <input type="text" className="form-control" value={phone} onChange={e => setPhone(e.target.value)} placeholder="07XX..." required />
+              </div>
+              <div style={{ flex: 1, minWidth: '200px' }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Amount (KSH)</label>
+                <input type="number" className="form-control" value={amount} onChange={e => setAmount(e.target.value)} placeholder="Min 10" min="10" required />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                <button type="submit" className={`btn ${actionType === 'deposit' ? 'btn-success' : 'btn-primary'}`} style={{ padding: '0.8rem 2rem' }}>
+                  {actionType === 'deposit' ? 'Pay Now' : 'Cash Out'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
 
       <div className="tabs">
         <button 
@@ -151,10 +236,15 @@ export default function Wallet({ user }) {
 
       <style>{`
         .wallet-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem; }
-        .wallet-balance-card { background: var(--bg-panel); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border-color); text-align: right; }
+        .wallet-balance-card { background: var(--bg-panel); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border-color); text-align: right; min-width: 300px; }
         .wallet-balance-card p { color: var(--text-secondary); margin-bottom: 0.5rem; font-size: 0.9rem; }
         .wallet-balance-card h2 { color: var(--success-color); font-size: 2rem; }
+        .btn-success { background-color: var(--success-color); color: white; border: none; }
+        .btn-success:hover { filter: brightness(1.1); }
         
+        .spinner { width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1); border-left-color: var(--success-color); border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
         .tabs { display: flex; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; }
         .tab-btn { display: flex; align-items: center; gap: 0.5rem; background: none; border: none; color: var(--text-secondary); font-size: 1rem; font-weight: 600; cursor: pointer; padding: 0.5rem 1rem; transition: all 0.2s; border-radius: 8px; }
         .tab-btn:hover { background: rgba(255,255,255,0.05); color: white; }

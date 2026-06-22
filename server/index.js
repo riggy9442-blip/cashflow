@@ -8,7 +8,7 @@ import bcrypt from 'bcrypt';
 import GameState from './gameLogic.js';
 
 // DB abstraction — uses MongoDB if MONGO_URI is set, else SQLite
-import { connectDB, User, Transaction } from './mongo.js';
+import { connectDB, User, Transaction, SystemData } from './mongo.js';
 import { getDb } from './db.js';
 
 const useMongo = !!process.env.MONGO_URI;
@@ -32,13 +32,62 @@ if (useMongo) {
   console.log('Using SQLite (set MONGO_URI to switch to MongoDB)');
 }
 
-// Initialize Game
+// Session store for users: Map<socketId, username>
+const userSockets = new Map();
+
+// Global Jackpot State
+let globalJackpot = 0;
+
+async function loadJackpot() {
+  try {
+    if (useMongo) {
+      const data = await SystemData.findOne({ key: 'jackpot' });
+      if (data) globalJackpot = Number(data.value);
+    } else {
+      const db = await getDb();
+      const row = await db.get("SELECT value FROM system_data WHERE key = 'jackpot'");
+      if (row) globalJackpot = Number(row.value);
+    }
+  } catch (e) {
+    console.error('Error loading jackpot:', e);
+  }
+}
+loadJackpot();
+
+async function updateJackpot(amount) {
+  globalJackpot += amount;
+  io.emit('jackpotUpdate', globalJackpot);
+  try {
+    if (useMongo) {
+      await SystemData.updateOne({ key: 'jackpot' }, { value: globalJackpot }, { upsert: true });
+    } else {
+      const db = await getDb();
+      await db.run("INSERT INTO system_data (key, value) VALUES ('jackpot', ?) ON CONFLICT(key) DO UPDATE SET value=?", [globalJackpot, globalJackpot]);
+    }
+  } catch (e) {
+    console.error('Error saving jackpot:', e);
+  }
+}
+
+// ─── Game State Initialization ───────────────────────────────────────────────
 const game = new GameState(io, async (username, panelId, winAmount, multiplier) => {
   try {
+    // Jackpot logic
+    let extraJackpotWin = 0;
+    if (multiplier >= 100 && globalJackpot > 0) {
+      extraJackpotWin = globalJackpot * 0.1; // Win 10% of jackpot for > 100x
+      if (multiplier >= 500) {
+        extraJackpotWin = globalJackpot; // Win 100% of jackpot for > 500x
+      }
+      winAmount += extraJackpotWin;
+      await updateJackpot(-extraJackpotWin); // Deduct from global pool
+      io.emit('newMessage', { username: 'SYSTEM', message: `🎉 ${username} JUST WON THE ${multiplier >= 500 ? 'MEGA' : 'MINI'} JACKPOT: ${extraJackpotWin.toFixed(2)} KSH! 🎉`, time: new Date().toLocaleTimeString() });
+    }
+
     await addBalance(username, winAmount);
-    await addTransaction(username, 'win', winAmount, { panelId, multiplier, autoCashOut: true });
+    await addTransaction(username, 'win', winAmount, { panelId, multiplier, autoCashOut: true, jackpotWin: extraJackpotWin });
     const newBalance = await getUserBalance(username);
-    io.emit('cashOutSuccess', { amount: winAmount, username, panelId, newBalance });
+    io.emit('cashOutSuccess', { amount: winAmount, username, panelId, newBalance, jackpotWin: extraJackpotWin });
   } catch (err) {
     console.error('Auto-cashout DB error:', err);
   }
@@ -100,11 +149,38 @@ async function processReferralCommission(betUsername, betAmount) {
   }
 }
 
+const getLevelFromXP = (xp) => {
+  if (xp >= 20000) return 'Platinum';
+  if (xp >= 5000) return 'Gold';
+  if (xp >= 1000) return 'Silver';
+  return 'Bronze';
+};
+
+async function addUserXP(username, xpAmount) {
+  try {
+    const user = await findUser(username);
+    if (!user) return;
+    
+    const newXP = (user.xp || 0) + xpAmount;
+    const newLevel = getLevelFromXP(newXP);
+    
+    if (useMongo) {
+      await User.updateOne({ username }, { $set: { xp: newXP, level: newLevel } });
+    } else {
+      const db = await getDb();
+      await db.run('UPDATE users SET xp = ?, level = ? WHERE username = ?', [newXP, newLevel, username]);
+    }
+  } catch (err) {
+    console.error('XP update error:', err);
+  }
+}
+
 // ─── Sockets ─────────────────────────────────────────────────────────────────
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
   socket.emit('gameState', game.getState());
   socket.emit('chatHistory', chatHistory);
+  socket.emit('jackpotUpdate', globalJackpot);
 
   socket.on('placeBet', async ({ username, amount, panelId, autoCashOut }) => {
     try {
@@ -115,6 +191,12 @@ io.on('connection', (socket) => {
       if (game.placeBet(username, amount, panelId, autoCashOut)) {
         await deductBalance(username, amount);
         await addTransaction(username, 'bet', -amount, { panelId, autoCashOut });
+        
+        // Add 0.5% of bet to the jackpot
+        updateJackpot(amount * 0.005);
+
+        // Grant XP for placing bet (10 XP per bet)
+        addUserXP(username, 10);
         
         // Process referral commission asynchronously
         processReferralCommission(username, amount);
@@ -131,12 +213,21 @@ io.on('connection', (socket) => {
 
   socket.on('cashOut', async ({ username, panelId }) => {
     try {
-      const winAmount = game.cashOut(username, panelId);
+      let winAmount = game.cashOut(username, panelId);
       if (winAmount) {
+        let extraJackpotWin = 0;
+        if (game.multiplier >= 100 && globalJackpot > 0) {
+          extraJackpotWin = globalJackpot * 0.1;
+          if (game.multiplier >= 500) extraJackpotWin = globalJackpot;
+          winAmount += extraJackpotWin;
+          await updateJackpot(-extraJackpotWin);
+          io.emit('newMessage', { username: 'SYSTEM', message: `🎉 ${username} JUST WON THE ${game.multiplier >= 500 ? 'MEGA' : 'MINI'} JACKPOT: ${extraJackpotWin.toFixed(2)} KSH! 🎉`, time: new Date().toLocaleTimeString() });
+        }
+
         await addBalance(username, winAmount);
-        await addTransaction(username, 'win', winAmount, { panelId, multiplier: game.multiplier });
+        await addTransaction(username, 'win', winAmount, { panelId, multiplier: game.multiplier, jackpotWin: extraJackpotWin });
         const newBalance = await getUserBalance(username);
-        socket.emit('cashOutSuccess', { amount: winAmount, username, panelId, newBalance });
+        socket.emit('cashOutSuccess', { amount: winAmount, username, panelId, newBalance, jackpotWin: extraJackpotWin });
       }
     } catch (error) {
       console.error('cashOut error:', error);
@@ -171,14 +262,14 @@ app.post('/api/register', async (req, res) => {
     if (useMongo) {
       const existing = await User.findOne({ $or: [{ username }, { phone }] });
       if (existing) return res.status(400).json({ error: 'Username or phone already exists' });
-      const newUser = await User.create({ username, phone, password: hashedPassword, referredBy });
-      return res.json({ success: true, username, balance: newUser.balance });
+      const newUser = await User.create({ username, phone, password: hashedPassword, referredBy, xp: 0, level: 'Bronze' });
+      return res.json({ success: true, username, balance: newUser.balance, xp: 0, level: 'Bronze' });
     } else {
       const db = await getDb();
       const existing = await db.get('SELECT username FROM users WHERE username = ? OR phone = ?', [username, phone]);
       if (existing) return res.status(400).json({ error: 'Username or phone already exists' });
-      await db.run('INSERT INTO users (username, phone, password, referredBy) VALUES (?, ?, ?, ?)', [username, phone, hashedPassword, referredBy]);
-      return res.json({ success: true, username, balance: 500 });
+      await db.run('INSERT INTO users (username, phone, password, referredBy, xp, level) VALUES (?, ?, ?, ?, 0, ?)', [username, phone, hashedPassword, referredBy, 'Bronze']);
+      return res.json({ success: true, username, balance: 500, xp: 0, level: 'Bronze' });
     }
   } catch (error) {
     console.error('Register error:', error);
@@ -189,14 +280,41 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   try {
-    const user = await findUser(username);
+    let user;
+    if (useMongo) {
+      user = await User.findOne({ username });
+    } else {
+      const db = await getDb();
+      user = await db.get('SELECT * FROM users WHERE username = ?', [username]);
+    }
+    
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     // Return the actual username from the db instead of what they typed (in case they typed a phone number)
-    res.json({ success: true, username: user.username, balance: user.balance });
+    res.json({ success: true, username: user.username, balance: user.balance, xp: user.xp, level: user.level });
   } catch (error) {
     console.error('Login error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ─── Payment Routes (M-Pesa Simulated) ──────────────────────────────────────
+app.post('/api/deposit', async (req, res) => {
+  const { username, amount, phoneNumber } = req.body;
+  try {
+    const user = await findUser(username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (amount < 10) return res.status(400).json({ error: 'Minimum deposit is KSH 10' });
+
+    // Simulate M-Pesa STK Push delay (user enters PIN on phone)
+    setTimeout(async () => {
+      await addBalance(username, amount);
+      await addTransaction(username, 'deposit', amount, { phoneNumber });
+      const newBalance = await getUserBalance(username);
+      res.json({ success: true, message: `KSH ${amount} deposited via M-Pesa`, newBalance });
+    }, 2500); // 2.5 second simulated wait
+  } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -220,9 +338,9 @@ app.post('/api/withdraw', async (req, res) => {
 
 app.get('/api/balance/:username', async (req, res) => {
   try {
-    const balance = await getUserBalance(req.params.username);
-    if (balance === null) return res.status(404).json({ error: 'User not found' });
-    res.json({ balance });
+    const user = await findUser(req.params.username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ balance: user.balance, xp: user.xp, level: user.level });
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }

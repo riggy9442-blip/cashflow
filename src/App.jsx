@@ -5,6 +5,7 @@ import Landing from './pages/Landing';
 import Game from './pages/Game';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import Leaderboard from './pages/Leaderboard';
 
 function App() {
   const [user, setUser] = useState(() => {
@@ -31,6 +32,7 @@ function App() {
               <span>✈️</span> CashJet
             </Link>
             <nav className="flex gap-2 items-center" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <Link to="/leaderboard" style={{ marginRight: '1rem', color: 'var(--text-secondary)', fontWeight: 600 }}>🏆 Leaderboard</Link>
               {user ? (
                 <>
                   <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
@@ -55,6 +57,7 @@ function App() {
             <Route path="/game" element={<Game user={user} onUpdateBalance={(bal) => setUser(prev => ({...prev, balance: bal}))} />} />
             <Route path="/login" element={<Login onLogin={handleLogin} />} />
             <Route path="/register" element={<Register onLogin={handleLogin} />} />
+            <Route path="/leaderboard" element={<Leaderboard />} />
           </Routes>
         </main>
       </Router>

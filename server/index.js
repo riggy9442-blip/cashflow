@@ -171,6 +171,21 @@ app.post('/api/withdraw', async (req, res) => {
   }
 });
 
+app.get('/api/leaderboard', async (req, res) => {
+  try {
+    let leaders;
+    if (useMongo) {
+      leaders = await User.find({}, 'username phone balance').sort({ balance: -1 }).limit(10);
+    } else {
+      const db = await getDb();
+      leaders = await db.all('SELECT username, phone, balance FROM users ORDER BY balance DESC LIMIT 10');
+    }
+    res.json(leaders);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ─── Serve Frontend ───────────────────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, '../dist')));
 app.use((req, res) => {

@@ -32,15 +32,24 @@ function App() {
             <Link to="/" className="logo">
               <span>✈️</span> CashJet
             </Link>
-            <nav className="flex gap-2 items-center" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              <Link to="/leaderboard" style={{ marginRight: '1rem', color: 'var(--text-secondary)', fontWeight: 600 }}>🏆 Leaderboard</Link>
+            <nav style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'nowrap' }}>
+              <Link to="/leaderboard" style={{ color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>🏆 Leaderboard</Link>
               {user ? (
                 <>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-                    <strong style={{ color: 'var(--success-color)' }}>KSH {typeof user.balance === 'number' ? user.balance.toFixed(0) : user.balance}</strong>
+                  <span style={{ 
+                    color: 'var(--success-color)', 
+                    fontWeight: 700, 
+                    fontSize: '0.9rem',
+                    backgroundColor: 'rgba(34,197,94,0.1)',
+                    padding: '0.35rem 0.75rem',
+                    borderRadius: '20px',
+                    border: '1px solid rgba(34,197,94,0.3)',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    KSH {typeof user.balance === 'number' ? user.balance.toFixed(0) : user.balance}
                   </span>
-                  <Link to="/game" className="btn btn-primary">Play</Link>
-                  <button onClick={handleLogout} className="btn btn-secondary" style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem' }}>Logout</button>
+                  <Link to="/game" className="btn btn-primary" style={{ whiteSpace: 'nowrap', padding: '0.4rem 1rem' }}>Play</Link>
+                  <button onClick={handleLogout} className="btn btn-secondary" style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem', whiteSpace: 'nowrap' }}>Logout</button>
                 </>
               ) : (
                 <>

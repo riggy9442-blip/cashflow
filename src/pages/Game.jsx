@@ -202,6 +202,12 @@ export default function Game({ user, onUpdateBalance }) {
     const newSocket = io();
     setSocket(newSocket);
 
+    // Fetch fresh balance from server on mount to prevent stale localStorage data
+    fetch(`/api/balance/${userRef.current.username}`)
+      .then(r => r.json())
+      .then(data => { if (data.balance !== undefined) onUpdateBalance(data.balance); })
+      .catch(() => {});
+
     newSocket.on('gameState', (state) => {
       setStatus(state.status);
       setMultiplier(state.multiplier);
@@ -240,7 +246,12 @@ export default function Game({ user, onUpdateBalance }) {
 
     newSocket.on('cashOutSuccess', (data) => {
       if (data.username === userRef.current.username) {
-        onUpdateBalance(userRef.current.balance + data.amount);
+        // Use server-confirmed new balance to avoid stale ref bugs
+        if (data.newBalance !== undefined) {
+          onUpdateBalance(data.newBalance);
+        } else {
+          onUpdateBalance(userRef.current.balance + data.amount);
+        }
         if (cashOutAudioRef.current) cashOutAudioRef.current();
       }
     });
@@ -293,10 +304,30 @@ export default function Game({ user, onUpdateBalance }) {
     <div className="game-layout">
       {/* Main Game Area */}
       <div className="game-main flex-col">
-        {/* History Bar */}
-        <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', padding: '0.5rem', backgroundColor: 'var(--bg-panel)', borderRadius: '8px' }}>
+        {/* History Bar - fixed height so it never shifts the canvas */}
+        <div style={{ 
+          display: 'flex', 
+          gap: '0.5rem', 
+          overflowX: 'auto', 
+          padding: '0.5rem', 
+          backgroundColor: 'var(--bg-panel)', 
+          borderRadius: '8px',
+          minHeight: '40px',
+          maxHeight: '40px',
+          flexShrink: 0,
+          alignItems: 'center',
+          scrollbarWidth: 'none'
+        }}>
           {history.map((m, i) => (
-            <span key={i} style={{ padding: '0.25rem 0.75rem', borderRadius: '4px', backgroundColor: parseFloat(m) >= 2 ? 'var(--success-color)' : 'var(--bg-secondary)', fontWeight: 'bold' }}>
+            <span key={i} style={{ 
+              padding: '0.2rem 0.6rem', 
+              borderRadius: '4px', 
+              backgroundColor: parseFloat(m) >= 2 ? 'var(--success-color)' : 'rgba(239,68,68,0.3)', 
+              fontWeight: 'bold',
+              fontSize: '0.8rem',
+              whiteSpace: 'nowrap',
+              flexShrink: 0
+            }}>
               {m}x
             </span>
           ))}

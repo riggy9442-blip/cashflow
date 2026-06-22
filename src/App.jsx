@@ -24,6 +24,13 @@ function App() {
     localStorage.removeItem('cashjet_user');
   };
 
+  // Always keep localStorage in sync with React state
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem('cashjet_user', JSON.stringify(user));
+    }
+  }, [user]);
+
   return (
     <ToastProvider>
       <Router>

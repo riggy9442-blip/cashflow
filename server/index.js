@@ -94,7 +94,8 @@ io.on('connection', (socket) => {
       const winAmount = game.cashOut(username, panelId);
       if (winAmount) {
         await addBalance(username, winAmount);
-        socket.emit('cashOutSuccess', { amount: winAmount, username, panelId });
+        const newBalance = await getUserBalance(username);
+        socket.emit('cashOutSuccess', { amount: winAmount, username, panelId, newBalance });
       }
     } catch (error) {
       console.error('cashOut error:', error);
@@ -169,6 +170,16 @@ app.post('/api/withdraw', async (req, res) => {
     setTimeout(() => {
       res.json({ success: true, message: `KSH ${amount} sent to ${phoneNumber} via M-Pesa`, newBalance: balance - amount });
     }, 1500);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/api/balance/:username', async (req, res) => {
+  try {
+    const balance = await getUserBalance(req.params.username);
+    if (balance === null) return res.status(404).json({ error: 'User not found' });
+    res.json({ balance });
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }

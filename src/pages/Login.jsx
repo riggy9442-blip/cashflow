@@ -42,7 +42,7 @@ export default function Login({ onLogin }) {
         {error && <div style={{ padding: '1rem', backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--accent-color)', borderRadius: '8px', marginBottom: '1.5rem', textAlign: 'center' }}>{error}</div>}
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label>Username</label>
+            <label>Username or Phone</label>
             <input 
               type="text" 
               className="form-control" 

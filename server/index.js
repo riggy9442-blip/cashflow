@@ -37,10 +37,10 @@ const game = new GameState(io);
 const chatHistory = [];
 
 // ─── DB Helpers (abstracted) ─────────────────────────────────────────────────
-async function findUser(username) {
-  if (useMongo) return User.findOne({ username });
+async function findUser(loginId) {
+  if (useMongo) return User.findOne({ $or: [{ username: loginId }, { phone: loginId }] });
   const db = await getDb();
-  return db.get('SELECT * FROM users WHERE username = ?', [username]);
+  return db.get('SELECT * FROM users WHERE username = ? OR phone = ?', [loginId, loginId]);
 }
 
 async function getUserBalance(username) {
@@ -150,8 +150,10 @@ app.post('/api/login', async (req, res) => {
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    res.json({ success: true, username, balance: user.balance });
+    // Return the actual username from the db instead of what they typed (in case they typed a phone number)
+    res.json({ success: true, username: user.username, balance: user.balance });
   } catch (error) {
+    console.error('Login error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });

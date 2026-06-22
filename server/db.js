@@ -25,7 +25,8 @@ export async function getDb() {
       balance REAL DEFAULT 500,
       referredBy TEXT DEFAULT NULL,
       xp INTEGER DEFAULT 0,
-      level TEXT DEFAULT 'Bronze'
+      level TEXT DEFAULT 'Bronze',
+      highestMultiplier REAL DEFAULT 0
     )
   `);
 
@@ -38,6 +39,9 @@ export async function getDb() {
   } catch (e) {}
   try {
     await dbInstance.exec("ALTER TABLE users ADD COLUMN level TEXT DEFAULT 'Bronze'");
+  } catch (e) {}
+  try {
+    await dbInstance.exec("ALTER TABLE users ADD COLUMN highestMultiplier REAL DEFAULT 0");
   } catch (e) {}
 
   await dbInstance.exec(`

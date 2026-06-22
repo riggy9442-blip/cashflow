@@ -12,9 +12,10 @@ export default function Wallet({ user }) {
   const [level, setLevel] = useState(user.level || 'Bronze');
 
   // Deposit / Withdraw State
-  const [actionType, setActionType] = useState(null); // 'deposit' | 'withdraw' | null
+  const [actionType, setActionType] = useState(null); // 'deposit' | 'withdraw' | 'transfer' | null
   const [amount, setAmount] = useState('');
   const [phone, setPhone] = useState(user.phone || '');
+  const [receiverUsername, setReceiverUsername] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [actionMessage, setActionMessage] = useState('');
 
@@ -62,34 +63,47 @@ export default function Wallet({ user }) {
       case 'win': return <LucideArrowDownLeft className="tx-icon-win" size={20} />;
       case 'deposit': return <LucideArrowDownLeft className="tx-icon-deposit" size={20} />;
       case 'withdraw': return <LucideArrowUpRight className="tx-icon-withdraw" size={20} />;
+      case 'transfer_out': return <LucideArrowUpRight className="tx-icon-withdraw" size={20} />;
+      case 'transfer_in': return <LucideArrowDownLeft className="tx-icon-deposit" size={20} />;
       case 'referral_commission': return <LucideGift className="tx-icon-gift" size={20} />;
       default: return <LucideWallet size={20} />;
     }
   };
 
   const getTxColor = (type) => {
-    if (['bet', 'withdraw'].includes(type)) return 'var(--accent-color)'; // red
+    if (['bet', 'withdraw', 'transfer_out'].includes(type)) return 'var(--accent-color)'; // red
     return 'var(--success-color)'; // green
   };
 
   const formatType = (type) => {
     if (type === 'referral_commission') return 'Referral Bonus';
+    if (type === 'transfer_out') return 'Transfer Sent';
+    if (type === 'transfer_in') return 'Transfer Received';
     return type.charAt(0).toUpperCase() + type.slice(1);
   };
 
   const handleTransaction = async (e) => {
     e.preventDefault();
     if (!amount || Number(amount) < 10) return alert('Minimum amount is KSH 10');
-    if (!phone) return alert('Phone number required');
+    if (actionType !== 'transfer' && !phone) return alert('Phone number required');
+    if (actionType === 'transfer' && !receiverUsername) return alert('Receiver username required');
 
     setIsProcessing(true);
-    setActionMessage(actionType === 'deposit' ? 'Awaiting M-Pesa STK Prompt on your phone...' : 'Processing withdrawal to M-Pesa...');
+    let message = 'Processing...';
+    if (actionType === 'deposit') message = 'Awaiting M-Pesa STK Prompt on your phone...';
+    else if (actionType === 'withdraw') message = 'Processing withdrawal to M-Pesa...';
+    else if (actionType === 'transfer') message = 'Sending funds...';
+    setActionMessage(message);
     
     try {
+      const bodyPayload = { username: user.username, amount: Number(amount) };
+      if (actionType === 'transfer') bodyPayload.receiverUsername = receiverUsername;
+      else bodyPayload.phoneNumber = phone;
+
       const res = await fetch(`/api/${actionType}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username, amount: Number(amount), phoneNumber: phone })
+        body: JSON.stringify(bodyPayload)
       });
       const data = await res.json();
       
@@ -150,9 +164,10 @@ export default function Wallet({ user }) {
         <div className="wallet-balance-card">
           <p>Available Balance</p>
           <h2>KSH {typeof balance === 'number' ? balance.toFixed(2) : balance}</h2>
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
             <button className="btn btn-success" onClick={() => setActionType('deposit')}>Deposit</button>
             <button className="btn btn-secondary" onClick={() => setActionType('withdraw')}>Withdraw</button>
+            <button className="btn btn-primary" onClick={() => setActionType('transfer')}>Send to Friend</button>
           </div>
         </div>
       </div>
@@ -161,7 +176,7 @@ export default function Wallet({ user }) {
         <div className="action-card" style={{ marginBottom: '2rem', padding: '1.5rem', background: 'var(--bg-panel)', borderRadius: '12px', border: '1px solid var(--accent-color)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <h3 style={{ margin: 0, color: actionType === 'deposit' ? 'var(--success-color)' : 'var(--accent-color)' }}>
-              {actionType === 'deposit' ? 'Deposit via M-Pesa' : 'Withdraw to M-Pesa'}
+              {actionType === 'deposit' ? 'Deposit via M-Pesa' : actionType === 'withdraw' ? 'Withdraw to M-Pesa' : 'P2P Wallet Transfer'}
             </h3>
             <button onClick={() => !isProcessing && setActionType(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1.5rem' }}>&times;</button>
           </div>
@@ -173,17 +188,24 @@ export default function Wallet({ user }) {
             </div>
           ) : (
             <form onSubmit={handleTransaction} style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: '200px' }}>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>M-Pesa Number</label>
-                <input type="text" className="form-control" value={phone} onChange={e => setPhone(e.target.value)} placeholder="07XX..." required />
-              </div>
+              {actionType === 'transfer' ? (
+                <div style={{ flex: 1, minWidth: '200px' }}>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Receiver Username</label>
+                  <input type="text" className="form-control" value={receiverUsername} onChange={e => setReceiverUsername(e.target.value)} placeholder="Username" required />
+                </div>
+              ) : (
+                <div style={{ flex: 1, minWidth: '200px' }}>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>M-Pesa Number</label>
+                  <input type="text" className="form-control" value={phone} onChange={e => setPhone(e.target.value)} placeholder="07XX..." required />
+                </div>
+              )}
               <div style={{ flex: 1, minWidth: '200px' }}>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Amount (KSH)</label>
                 <input type="number" className="form-control" value={amount} onChange={e => setAmount(e.target.value)} placeholder="Min 10" min="10" required />
               </div>
               <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                 <button type="submit" className={`btn ${actionType === 'deposit' ? 'btn-success' : 'btn-primary'}`} style={{ padding: '0.8rem 2rem' }}>
-                  {actionType === 'deposit' ? 'Pay Now' : 'Cash Out'}
+                  {actionType === 'deposit' ? 'Pay Now' : actionType === 'withdraw' ? 'Cash Out' : 'Send'}
                 </button>
               </div>
             </form>

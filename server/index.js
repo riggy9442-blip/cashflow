@@ -35,6 +35,9 @@ if (useMongo) {
 // Session store for users: Map<socketId, username>
 const userSockets = new Map();
 
+// Active Chat Rains: Map<rainId, { amountPerUser, remaining, claimedBy: Set<string> }>
+const activeRains = new Map();
+
 // Global Jackpot State
 let globalJackpot = 0;
 
@@ -224,6 +227,16 @@ io.on('connection', (socket) => {
           io.emit('newMessage', { username: 'SYSTEM', message: `🎉 ${username} JUST WON THE ${game.multiplier >= 500 ? 'MEGA' : 'MINI'} JACKPOT: ${extraJackpotWin.toFixed(2)} KSH! 🎉`, time: new Date().toLocaleTimeString() });
         }
 
+        // Update highest multiplier
+        const userRec = await findUser(username);
+        if (userRec && game.multiplier > (userRec.highestMultiplier || 0)) {
+          if (process.env.MONGO_URI) {
+            await MongoUser.updateOne({ username }, { $set: { highestMultiplier: game.multiplier } });
+          } else {
+            await getDb().exec(`UPDATE users SET highestMultiplier = ${game.multiplier} WHERE username = '${username}'`);
+          }
+        }
+
         await addBalance(username, winAmount);
         await addTransaction(username, 'win', winAmount, { panelId, multiplier: game.multiplier, jackpotWin: extraJackpotWin });
         const newBalance = await getUserBalance(username);
@@ -245,6 +258,26 @@ io.on('connection', (socket) => {
     chatHistory.push(chatMsg);
     if (chatHistory.length > 50) chatHistory.shift();
     io.emit('newMessage', chatMsg);
+  });
+
+  socket.on('claimRain', async ({ username, rainId }) => {
+    const rain = activeRains.get(rainId);
+    if (!rain) return socket.emit('betFailed', 'This rain has expired.');
+    if (rain.remaining <= 0) return socket.emit('betFailed', 'This rain is fully claimed!');
+    if (rain.claimedBy.has(username)) return socket.emit('betFailed', 'You already claimed this rain!');
+
+    rain.claimedBy.add(username);
+    rain.remaining -= 1;
+    
+    await addBalance(username, rain.amountPerUser);
+    await addTransaction(username, 'win', rain.amountPerUser, { type: 'chat_rain', rainId });
+    
+    const newBalance = await getUserBalance(username);
+    socket.emit('cashOutSuccess', { amount: rain.amountPerUser, username, newBalance, isRain: true });
+    
+    io.emit('newMessage', { username: 'SYSTEM', message: `💸 ${username} claimed KSH ${rain.amountPerUser} from the Chat Rain! (${rain.remaining} left)`, time: new Date().toLocaleTimeString() });
+    
+    if (rain.remaining <= 0) activeRains.delete(rainId);
   });
 
   socket.on('disconnect', () => {
@@ -325,6 +358,32 @@ app.post('/api/deposit', async (req, res) => {
   }
 });
 
+app.post('/api/transfer', async (req, res) => {
+  const { username, receiverUsername, amount } = req.body;
+  if (!username || !receiverUsername || amount <= 0) return res.status(400).json({ error: 'Invalid parameters' });
+  if (username === receiverUsername) return res.status(400).json({ error: 'Cannot transfer to yourself' });
+
+  try {
+    const sender = await findUser(username);
+    const receiver = await findUser(receiverUsername);
+    
+    if (!sender) return res.status(404).json({ error: 'Sender not found' });
+    if (!receiver) return res.status(404).json({ error: 'Receiver not found' });
+    if (sender.balance < amount) return res.status(400).json({ error: 'Insufficient balance' });
+
+    await deductBalance(username, amount);
+    await addBalance(receiverUsername, amount);
+    
+    await addTransaction(username, 'transfer_out', -amount, { receiverUsername });
+    await addTransaction(receiverUsername, 'transfer_in', amount, { senderUsername: username });
+    
+    const newBalance = await getUserBalance(username);
+    res.json({ success: true, message: `Successfully sent KSH ${amount} to ${receiverUsername}`, newBalance });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 app.post('/api/withdraw', async (req, res) => {
   const { username, amount, phoneNumber } = req.body;
   try {
@@ -354,14 +413,29 @@ app.get('/api/balance/:username', async (req, res) => {
 
 app.get('/api/leaderboard', async (req, res) => {
   try {
-    let leaders;
-    if (useMongo) {
-      leaders = await User.find({}, 'username phone balance').sort({ balance: -1 }).limit(10);
+    let topUsers = [];
+    if (process.env.MONGO_URI) {
+      topUsers = await MongoUser.find().sort({ balance: -1 }).limit(10).select('username phone balance level -_id');
     } else {
-      const db = await getDb();
-      leaders = await db.all('SELECT username, phone, balance FROM users ORDER BY balance DESC LIMIT 10');
+      topUsers = await getDb().all('SELECT username, phone, balance, level FROM users ORDER BY balance DESC LIMIT 10');
     }
-    res.json(leaders);
+    // Mask phone numbers
+    topUsers = topUsers.map(u => ({ ...u, phone: u.phone.replace(/.(?=.{4})/g, '*') }));
+    res.json(topUsers);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/api/tournaments', async (req, res) => {
+  try {
+    let topUsers = [];
+    if (process.env.MONGO_URI) {
+      topUsers = await MongoUser.find({ highestMultiplier: { $gt: 0 } }).sort({ highestMultiplier: -1 }).limit(10).select('username highestMultiplier level -_id');
+    } else {
+      topUsers = await getDb().all('SELECT username, highestMultiplier, level FROM users WHERE highestMultiplier > 0 ORDER BY highestMultiplier DESC LIMIT 10');
+    }
+    res.json(topUsers);
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -440,6 +514,32 @@ app.post('/api/admin/adjust-balance', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+app.post('/api/admin/rain', async (req, res) => {
+  const { password, totalAmount, count } = req.body;
+  if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Unauthorized' });
+  
+  if (totalAmount <= 0 || count <= 0) return res.status(400).json({ error: 'Invalid parameters' });
+
+  const rainId = Date.now().toString();
+  const amountPerUser = Math.floor(totalAmount / count);
+  
+  activeRains.set(rainId, { amountPerUser, remaining: count, claimedBy: new Set() });
+  
+  const msg = {
+    username: 'SYSTEM',
+    message: `🌧️ IT IS RAINING! KSH ${totalAmount} total. The first ${count} people to click claim get KSH ${amountPerUser}!`,
+    time: new Date().toLocaleTimeString(),
+    isRainEvent: true,
+    rainId
+  };
+  
+  chatHistory.push(msg);
+  if (chatHistory.length > 50) chatHistory.shift();
+  io.emit('newMessage', msg);
+  
+  res.json({ success: true, message: 'Rain started' });
 });
 
 // ─── Serve Frontend ───────────────────────────────────────────────────────────

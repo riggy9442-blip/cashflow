@@ -28,7 +28,8 @@ const userSchema = new mongoose.Schema({
   balance:  { type: Number, default: 500 },
   referredBy: { type: String, default: null },
   xp:       { type: Number, default: 0 },
-  level:    { type: String, default: 'Bronze' }
+  level:    { type: String, default: 'Bronze' },
+  highestMultiplier: { type: Number, default: 0 }
 }, { timestamps: true });
 
 // Transaction Schema

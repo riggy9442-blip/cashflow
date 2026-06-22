@@ -11,9 +11,22 @@ function BetPanel({ panelId, socket, status, user, multiplier, onWin, onBetPlace
   const [cashedOut, setCashedOut] = useState(false);
   const [winAmount, setWinAmount] = useState(0);
   
-  const [autoBet, setAutoBet] = useState(false);
+  // Advanced Auto-Bet State
+  const [activeTab, setActiveTab] = useState('manual'); // 'manual' or 'auto'
   const [autoCashOut, setAutoCashOut] = useState(false);
   const [targetMultiplier, setTargetMultiplier] = useState(2.00);
+  
+  const [autoScriptRunning, setAutoScriptRunning] = useState(false);
+  const [baseBet, setBaseBet] = useState(betAmount);
+  const [onWinAction, setOnWinAction] = useState('reset'); // 'reset' or 'increase'
+  const [onWinPercent, setOnWinPercent] = useState(100);
+  const [onLossAction, setOnLossAction] = useState('reset'); // 'reset' or 'increase'
+  const [onLossPercent, setOnLossPercent] = useState(100);
+  const [stopProfit, setStopProfit] = useState('');
+  const [stopLoss, setStopLoss] = useState('');
+  
+  // Session tracking for Auto-Bet
+  const [sessionProfit, setSessionProfit] = useState(0);
 
   const placeBet = () => {
     if (betAmount > user.balance || betAmount <= 0) return toast.error('Invalid bet amount');
@@ -29,19 +42,29 @@ function BetPanel({ panelId, socket, status, user, multiplier, onWin, onBetPlace
     socket.emit('cashOut', { username: user.username, panelId });
   };
 
-  // Auto Bet Logic
+  // Auto Script trigger bet
   useEffect(() => {
-    if (status === 'WAITING' && autoBet && !hasBet) {
-      const timer = setTimeout(() => {
-        placeBet();
-      }, 1000 + Math.random() * 2000);
+    if (status === 'WAITING' && autoScriptRunning && !hasBet) {
+      // Check stop limits before placing bet
+      if (stopProfit && sessionProfit >= Number(stopProfit)) {
+        toast.info('Auto-Bet stopped: Target Profit Reached');
+        setAutoScriptRunning(false);
+        return;
+      }
+      if (stopLoss && sessionProfit <= -Number(stopLoss)) {
+        toast.error('Auto-Bet stopped: Stop Loss Reached');
+        setAutoScriptRunning(false);
+        return;
+      }
+      
+      const timer = setTimeout(() => { placeBet(); }, 500 + Math.random() * 1000);
       return () => clearTimeout(timer);
     }
     if (status === 'WAITING') {
       setCashedOut(false);
       setWinAmount(0);
     }
-  }, [status, autoBet, hasBet]);
+  }, [status, autoScriptRunning, hasBet, sessionProfit, stopProfit, stopLoss]);
 
   // Auto Cashout Logic
   useEffect(() => {
@@ -68,12 +91,34 @@ function BetPanel({ panelId, socket, status, user, multiplier, onWin, onBetPlace
         setCashedOut(true);
         setWinAmount(data.amount);
         toast.win(`Won KSH ${data.amount.toFixed(2)}! 🎉`);
+        
+        // Auto-Bet: Handle Win
+        if (autoScriptRunning) {
+          const profit = data.amount - betAmount;
+          setSessionProfit(prev => prev + profit);
+          
+          if (onWinAction === 'reset') {
+            setBetAmount(baseBet);
+          } else if (onWinAction === 'increase') {
+            setBetAmount(prev => prev + (prev * (onWinPercent / 100)));
+          }
+        }
       }
     };
     
     const handleGameCrashed = () => {
       if (hasBet && !cashedOut) {
         setHasBet(false);
+        // Auto-Bet: Handle Loss
+        if (autoScriptRunning) {
+          setSessionProfit(prev => prev - betAmount);
+          
+          if (onLossAction === 'reset') {
+            setBetAmount(baseBet);
+          } else if (onLossAction === 'increase') {
+            setBetAmount(prev => prev + (prev * (onLossPercent / 100)));
+          }
+        }
       }
     };
 
@@ -89,12 +134,58 @@ function BetPanel({ panelId, socket, status, user, multiplier, onWin, onBetPlace
   }, [socket, panelId, user.username, hasBet, cashedOut]);
 
   return (
-    <div className="bet-panel flex-col gap-2" style={{ backgroundColor: 'var(--bg-panel)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)', flex: 1 }}>
+    <div className="bet-panel flex-col gap-2" style={{ backgroundColor: 'var(--bg-panel)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)', flex: 1, position: 'relative' }}>
+      
+      {/* Tab Header */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', marginBottom: '0.5rem' }}>
+        <button 
+          onClick={() => { setActiveTab('manual'); setAutoScriptRunning(false); }}
+          style={{ flex: 1, padding: '0.5rem', background: activeTab === 'manual' ? 'var(--bg-secondary)' : 'transparent', border: 'none', color: activeTab === 'manual' ? 'var(--accent-color)' : 'white', fontWeight: activeTab === 'manual' ? 'bold' : 'normal', borderRadius: '4px 4px 0 0', cursor: 'pointer' }}
+        >Manual</button>
+        <button 
+          onClick={() => { setActiveTab('auto'); setBaseBet(betAmount); setSessionProfit(0); }}
+          style={{ flex: 1, padding: '0.5rem', background: activeTab === 'auto' ? 'var(--bg-secondary)' : 'transparent', border: 'none', color: activeTab === 'auto' ? '#ffc107' : 'white', fontWeight: activeTab === 'auto' ? 'bold' : 'normal', borderRadius: '4px 4px 0 0', cursor: 'pointer' }}
+        >Auto Script</button>
+      </div>
+
+      {activeTab === 'auto' && (
+        <div style={{ fontSize: '0.75rem', backgroundColor: 'var(--bg-primary)', padding: '0.5rem', borderRadius: '4px', marginBottom: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ color: 'var(--text-secondary)' }}>On Win</label>
+              <select value={onWinAction} onChange={e=>setOnWinAction(e.target.value)} style={{ width: '100%', background: 'var(--bg-secondary)', color: 'white', border: 'none', padding: '0.2rem' }}>
+                <option value="reset">Reset to Base</option>
+                <option value="increase">Increase by %</option>
+              </select>
+              {onWinAction === 'increase' && <input type="number" value={onWinPercent} onChange={e=>setOnWinPercent(Number(e.target.value))} style={{ width: '100%', background: 'var(--bg-secondary)', color: 'white', border: 'none', padding: '0.2rem', marginTop: '0.2rem' }} />}
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ color: 'var(--text-secondary)' }}>On Loss</label>
+              <select value={onLossAction} onChange={e=>setOnLossAction(e.target.value)} style={{ width: '100%', background: 'var(--bg-secondary)', color: 'white', border: 'none', padding: '0.2rem' }}>
+                <option value="reset">Reset to Base</option>
+                <option value="increase">Increase by %</option>
+              </select>
+              {onLossAction === 'increase' && <input type="number" value={onLossPercent} onChange={e=>setOnLossPercent(Number(e.target.value))} style={{ width: '100%', background: 'var(--bg-secondary)', color: 'white', border: 'none', padding: '0.2rem', marginTop: '0.2rem' }} />}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ color: 'var(--text-secondary)' }}>Stop Profit</label>
+              <input type="number" placeholder="No limit" value={stopProfit} onChange={e=>setStopProfit(e.target.value)} style={{ width: '100%', background: 'var(--bg-secondary)', color: 'white', border: 'none', padding: '0.2rem' }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ color: 'var(--text-secondary)' }}>Stop Loss</label>
+              <input type="number" placeholder="No limit" value={stopLoss} onChange={e=>setStopLoss(e.target.value)} style={{ width: '100%', background: 'var(--bg-secondary)', color: 'white', border: 'none', padding: '0.2rem' }} />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toggles */}
       <div className="flex justify-between items-center" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={autoBet} onChange={e => setAutoBet(e.target.checked)} /> Auto Bet
-        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {activeTab === 'auto' && <span style={{ color: sessionProfit >= 0 ? 'var(--success-color)' : 'var(--accent-color)' }}>Profit: {sessionProfit.toFixed(2)}</span>}
+        </div>
         <label className="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" checked={autoCashOut} onChange={e => setAutoCashOut(e.target.checked)} /> Auto Cashout
           {autoCashOut && (
@@ -105,18 +196,32 @@ function BetPanel({ panelId, socket, status, user, multiplier, onWin, onBetPlace
 
       <div className="flex justify-between items-center gap-4">
         <div style={{ display: 'flex', alignItems: 'center', backgroundColor: 'var(--bg-primary)', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
-          <button onClick={() => setBetAmount(Math.max(10, betAmount - 10))} disabled={hasBet && status !== 'WAITING'} style={{ padding: '0.75rem', background: 'transparent', border: 'none', color: 'white', cursor: 'pointer' }}>-</button>
+          <button onClick={() => setBetAmount(Math.max(10, betAmount - 10))} disabled={hasBet || autoScriptRunning} style={{ padding: '0.75rem', background: 'transparent', border: 'none', color: 'white', cursor: 'pointer' }}>-</button>
           <input 
             type="number" 
             value={betAmount} 
             onChange={(e) => setBetAmount(Number(e.target.value))}
-            disabled={hasBet && status !== 'WAITING'}
+            disabled={hasBet || autoScriptRunning}
             style={{ width: '60px', textAlign: 'center', background: 'transparent', border: 'none', color: 'white', fontSize: '1.25rem', fontWeight: 'bold', outline: 'none' }}
           />
-          <button onClick={() => setBetAmount(betAmount + 10)} disabled={hasBet && status !== 'WAITING'} style={{ padding: '0.75rem', background: 'transparent', border: 'none', color: 'white', cursor: 'pointer' }}>+</button>
+          <button onClick={() => setBetAmount(betAmount + 10)} disabled={hasBet || autoScriptRunning} style={{ padding: '0.75rem', background: 'transparent', border: 'none', color: 'white', cursor: 'pointer' }}>+</button>
         </div>
         
-        {status === 'WAITING' ? (
+        {activeTab === 'auto' ? (
+           <button 
+             className={`btn`} 
+             style={{ padding: '1rem', fontSize: '1.25rem', flex: 1, backgroundColor: autoScriptRunning ? 'var(--accent-color)' : '#ffc107', color: 'black', fontWeight: 'bold' }}
+             onClick={() => {
+               if (!autoScriptRunning) {
+                 setBaseBet(betAmount);
+                 setSessionProfit(0);
+               }
+               setAutoScriptRunning(!autoScriptRunning);
+             }}
+           >
+             {autoScriptRunning ? 'STOP AUTO' : 'START AUTO'}
+           </button>
+        ) : status === 'WAITING' ? (
           <button 
             className={`btn ${hasBet ? 'btn-secondary' : 'btn-success'}`} 
             style={{ padding: '1rem', fontSize: '1.25rem', flex: 1 }}
@@ -442,15 +547,25 @@ export default function Game({ user, onUpdateBalance }) {
           {chatMessages.map((msg, i) => {
             const isSystem = msg.username === 'SYSTEM';
             return (
-              <div key={i} style={{ fontSize: '0.9rem', backgroundColor: isSystem ? 'rgba(255,193,7,0.1)' : 'transparent', padding: isSystem ? '0.25rem' : '0', borderRadius: '4px' }}>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginRight: '0.5rem' }}>{msg.time}</span>
-                {msg.level && msg.level !== 'Bronze' && !isSystem && (
-                  <span style={{ fontSize: '0.75rem', marginRight: '0.3rem', padding: '0.1rem 0.3rem', borderRadius: '4px', backgroundColor: msg.level === 'Platinum' ? '#e5e4e2' : msg.level === 'Gold' ? '#ffd700' : '#c0c0c0', color: '#000', fontWeight: 'bold' }}>
-                    {msg.level === 'Platinum' ? '💎' : msg.level === 'Gold' ? '🥇' : '🥈'}
-                  </span>
+              <div key={i} style={{ fontSize: '0.9rem', backgroundColor: isSystem ? 'rgba(255,193,7,0.1)' : 'transparent', padding: isSystem ? '0.25rem' : '0', borderRadius: '4px', marginBottom: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginRight: '0.5rem' }}>{msg.time}</span>
+                  {msg.level && msg.level !== 'Bronze' && !isSystem && (
+                    <span style={{ fontSize: '0.75rem', marginRight: '0.3rem', padding: '0.1rem 0.3rem', borderRadius: '4px', backgroundColor: msg.level === 'Platinum' ? '#e5e4e2' : msg.level === 'Gold' ? '#ffd700' : '#c0c0c0', color: '#000', fontWeight: 'bold' }}>
+                      {msg.level === 'Platinum' ? '💎' : msg.level === 'Gold' ? '🥇' : '🥈'}
+                    </span>
+                  )}
+                  <strong style={{ color: isSystem ? '#ffc107' : 'var(--accent-color)', marginRight: '0.5rem' }}>{msg.username}:</strong>
+                  <span style={{ color: isSystem ? '#ffc107' : 'inherit', fontWeight: isSystem ? 'bold' : 'normal', flex: 1 }}>{msg.message}</span>
+                </div>
+                {msg.isRainEvent && (
+                  <button 
+                    onClick={() => socket.emit('claimRain', { username: user.username, rainId: msg.rainId })}
+                    style={{ marginTop: '0.5rem', width: '100%', padding: '0.5rem', backgroundColor: 'var(--success-color)', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', animation: 'pulse 2s infinite' }}
+                  >
+                    CLAIM BONUS 💸
+                  </button>
                 )}
-                <strong style={{ color: isSystem ? '#ffc107' : 'var(--accent-color)', marginRight: '0.5rem' }}>{msg.username}:</strong>
-                <span style={{ color: isSystem ? '#ffc107' : 'inherit', fontWeight: isSystem ? 'bold' : 'normal' }}>{msg.message}</span>
               </div>
             );
           })}

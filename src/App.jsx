@@ -28,17 +28,19 @@ function App() {
           <Link to="/" className="logo">
             <span>✈️</span> CashJet
           </Link>
-          <nav className="flex gap-4 items-center">
+          <nav className="flex gap-2 items-center" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {user ? (
               <>
-                <span style={{ color: 'var(--text-secondary)' }}>Balance: <strong style={{ color: 'var(--success-color)' }}>KSH {user.balance}</strong></span>
-                <Link to="/game" className="btn btn-primary">Play Now</Link>
-                <button onClick={handleLogout} className="btn btn-secondary" style={{ padding: '0.5rem 1rem' }}>Logout</button>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                  <strong style={{ color: 'var(--success-color)' }}>KSH {typeof user.balance === 'number' ? user.balance.toFixed(0) : user.balance}</strong>
+                </span>
+                <Link to="/game" className="btn btn-primary">Play</Link>
+                <button onClick={handleLogout} className="btn btn-secondary" style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem' }}>Logout</button>
               </>
             ) : (
               <>
                 <Link to="/login" className="btn btn-secondary">Login</Link>
-                <Link to="/register" className="btn btn-primary">Get KSH 500 Bonus</Link>
+                <Link to="/register" className="btn btn-primary">Get KSH 500</Link>
               </>
             )}
           </nav>

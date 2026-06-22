@@ -276,6 +276,8 @@ export default function Game({ user, onUpdateBalance }) {
 
   const pos = planePos();
 
+  if (!user) return null;
+
   return (
     <div className="game-layout">
       {/* Main Game Area */}

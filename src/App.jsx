@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Leaderboard from './pages/Leaderboard';
 import Admin from './pages/Admin';
+import Wallet from './pages/Wallet';
 
 function App() {
   const [user, setUser] = useState(() => {
@@ -43,14 +44,13 @@ function App() {
               <Link to="/leaderboard" style={{ color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>🏆 Leaderboard</Link>
               {user ? (
                 <>
-                  <span style={{ 
-                    color: 'var(--success-color)', 
-                    fontWeight: 700, 
-                    fontSize: '0.9rem',
-                    backgroundColor: 'rgba(34,197,94,0.1)',
-                    padding: '0.35rem 0.75rem',
-                    borderRadius: '20px',
-                    border: '1px solid rgba(34,197,94,0.3)',
+                  <Link to="/wallet" className="btn btn-secondary" style={{ padding: '0.4rem 1rem' }}>Wallet</Link>
+                  <span className="balance-pill" style={{ 
+                    background: 'var(--bg-primary)', 
+                    padding: '0.4rem 1rem', 
+                    borderRadius: '20px', 
+                    border: '1px solid var(--border-color)',
+                    fontWeight: 'bold',
                     whiteSpace: 'nowrap'
                   }}>
                     KSH {typeof user.balance === 'number' ? user.balance.toFixed(0) : user.balance}
@@ -75,6 +75,7 @@ function App() {
             <Route path="/login" element={<Login onLogin={handleLogin} />} />
             <Route path="/register" element={<Register onLogin={handleLogin} />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/wallet" element={user ? <Wallet user={user} /> : <Navigate to="/login" />} />
             <Route path="/admin" element={<Admin />} />
           </Routes>
         </main>

@@ -8,7 +8,7 @@ import bcrypt from 'bcrypt';
 import GameState from './gameLogic.js';
 
 // DB abstraction — uses MongoDB if MONGO_URI is set, else SQLite
-import { connectDB, User } from './mongo.js';
+import { connectDB, User, Transaction } from './mongo.js';
 import { getDb } from './db.js';
 
 const useMongo = !!process.env.MONGO_URI;
@@ -65,6 +65,32 @@ async function addBalance(username, amount) {
   return db.run('UPDATE users SET balance = balance + ? WHERE username = ?', [amount, username]);
 }
 
+async function addTransaction(username, type, amount, metadata = {}) {
+  if (useMongo) {
+    return Transaction.create({ username, type, amount, metadata });
+  }
+  const db = await getDb();
+  return db.run('INSERT INTO transactions (username, type, amount, metadata) VALUES (?, ?, ?, ?)', 
+    [username, type, amount, JSON.stringify(metadata)]);
+}
+
+async function processReferralCommission(betUsername, betAmount) {
+  try {
+    const user = await findUser(betUsername);
+    if (!user || !user.referredBy) return;
+    
+    // 1% commission
+    const commission = betAmount * 0.01;
+    await addBalance(user.referredBy, commission);
+    await addTransaction(user.referredBy, 'referral_commission', commission, { 
+      referredUser: betUsername, 
+      betAmount 
+    });
+  } catch (err) {
+    console.error('Commission error:', err);
+  }
+}
+
 // ─── Sockets ─────────────────────────────────────────────────────────────────
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
@@ -79,6 +105,11 @@ io.on('connection', (socket) => {
       }
       if (game.placeBet(username, amount, panelId)) {
         await deductBalance(username, amount);
+        await addTransaction(username, 'bet', -amount, { panelId });
+        
+        // Process referral commission asynchronously
+        processReferralCommission(username, amount);
+        
         socket.emit('betConfirmed', { amount, username, panelId });
       } else {
         socket.emit('betFailed', 'Could not place bet — wait for next round');
@@ -94,6 +125,7 @@ io.on('connection', (socket) => {
       const winAmount = game.cashOut(username, panelId);
       if (winAmount) {
         await addBalance(username, winAmount);
+        await addTransaction(username, 'win', winAmount, { panelId, multiplier: game.multiplier });
         const newBalance = await getUserBalance(username);
         socket.emit('cashOutSuccess', { amount: winAmount, username, panelId, newBalance });
       }
@@ -116,7 +148,7 @@ io.on('connection', (socket) => {
 
 // ─── Auth Routes ─────────────────────────────────────────────────────────────
 app.post('/api/register', async (req, res) => {
-  const { username, password, phone } = req.body;
+  const { username, password, phone, ref } = req.body;
 
   const phoneRegex = /^(?:254|\+254|0)?((?:7|1)(?:(?:[0-9][0-9])|[0-9])\d{6})$/;
   if (!phoneRegex.test(phone)) {
@@ -125,17 +157,18 @@ app.post('/api/register', async (req, res) => {
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
+    const referredBy = ref ? ref.trim() : null;
 
     if (useMongo) {
       const existing = await User.findOne({ $or: [{ username }, { phone }] });
       if (existing) return res.status(400).json({ error: 'Username or phone already exists' });
-      const newUser = await User.create({ username, phone, password: hashedPassword });
+      const newUser = await User.create({ username, phone, password: hashedPassword, referredBy });
       return res.json({ success: true, username, balance: newUser.balance });
     } else {
       const db = await getDb();
       const existing = await db.get('SELECT username FROM users WHERE username = ? OR phone = ?', [username, phone]);
       if (existing) return res.status(400).json({ error: 'Username or phone already exists' });
-      await db.run('INSERT INTO users (username, phone, password) VALUES (?, ?, ?)', [username, phone, hashedPassword]);
+      await db.run('INSERT INTO users (username, phone, password, referredBy) VALUES (?, ?, ?, ?)', [username, phone, hashedPassword, referredBy]);
       return res.json({ success: true, username, balance: 500 });
     }
   } catch (error) {
@@ -167,6 +200,7 @@ app.post('/api/withdraw', async (req, res) => {
       return res.status(400).json({ error: 'Insufficient balance' });
     }
     await deductBalance(username, amount);
+    await addTransaction(username, 'withdraw', -amount, { phoneNumber });
     setTimeout(() => {
       res.json({ success: true, message: `KSH ${amount} sent to ${phoneNumber} via M-Pesa`, newBalance: balance - amount });
     }, 1500);
@@ -196,6 +230,46 @@ app.get('/api/leaderboard', async (req, res) => {
     }
     res.json(leaders);
   } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/api/transactions/:username', async (req, res) => {
+  const { username } = req.params;
+  try {
+    let txs;
+    if (useMongo) {
+      txs = await Transaction.find({ username }).sort({ createdAt: -1 }).limit(50);
+    } else {
+      const db = await getDb();
+      txs = await db.all('SELECT * FROM transactions WHERE username = ? ORDER BY created_at DESC LIMIT 50', [username]);
+      txs = txs.map(t => ({ ...t, metadata: t.metadata ? JSON.parse(t.metadata) : {} }));
+    }
+    res.json(txs);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/api/referrals/:username', async (req, res) => {
+  const { username } = req.params;
+  try {
+    let count = 0;
+    let earned = 0;
+    if (useMongo) {
+      count = await User.countDocuments({ referredBy: username });
+      const txs = await Transaction.find({ username, type: 'referral_commission' });
+      earned = txs.reduce((sum, t) => sum + t.amount, 0);
+    } else {
+      const db = await getDb();
+      const row = await db.get('SELECT COUNT(*) as count FROM users WHERE referredBy = ?', [username]);
+      count = row ? row.count : 0;
+      const txRows = await db.all('SELECT amount FROM transactions WHERE username = ? AND type = ?', [username, 'referral_commission']);
+      earned = txRows.reduce((sum, t) => sum + t.amount, 0);
+    }
+    res.json({ count, earned });
+  } catch (error) {
+    console.error(error);
     res.status(500).json({ error: 'Server error' });
   }
 });

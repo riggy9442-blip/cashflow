@@ -1,0 +1,20 @@
+{
+  "name": "CashJet - Aviator Game",
+  "short_name": "CashJet",
+  "description": "Kenya's #1 crash game. Place bets, cash out, win big!",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0c",
+  "theme_color": "#ef4444",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["games", "entertainment"],
+  "lang": "en"
+}

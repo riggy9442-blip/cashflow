@@ -5,7 +5,9 @@ class GameState {
     this.io = io;
     this.status = 'WAITING'; // WAITING, IN_PROGRESS, CRASHED
     this.multiplier = 1.0;
-    this.crashPoint = 1.0;
+    this.serverSeed = this.generateServerSeed();
+    this.serverHash = this.generateHash(this.serverSeed);
+    this.crashPoint = this.generateCrashPoint();
     this.players = new Map(); // username -> { username, betAmount, cashedOut, winnings }
     this.history = [];
     this.startTime = 0;
@@ -13,6 +15,14 @@ class GameState {
     this.bots = [];
     
     this.startWaitingPhase();
+  }
+
+  generateServerSeed() {
+    return crypto.randomBytes(32).toString('hex');
+  }
+
+  generateHash(seed) {
+    return crypto.createHash('sha256').update(seed).digest('hex');
   }
 
   generateBots() {
@@ -46,6 +56,9 @@ class GameState {
   startWaitingPhase() {
     this.status = 'WAITING';
     this.multiplier = 1.0;
+    this.serverSeed = this.generateServerSeed();
+    this.serverHash = this.generateHash(this.serverSeed);
+    this.crashPoint = this.generateCrashPoint();
     this.players.clear();
     this.generateBots();
     
@@ -119,7 +132,8 @@ class GameState {
     
     this.io.emit('gameCrashed', {
       multiplier: this.crashPoint.toFixed(2),
-      players: Array.from(this.players.entries()).map(([id, p]) => p)
+      players: Array.from(this.players.entries()).map(([id, p]) => p),
+      serverSeed: this.serverSeed
     });
     
     setTimeout(() => {
@@ -167,7 +181,9 @@ class GameState {
       status: this.status,
       multiplier: this.multiplier.toFixed(2),
       players: Array.from(this.players.values()),
-      history: this.history
+      history: this.history,
+      serverHash: this.serverHash,
+      serverSeed: this.status === 'CRASHED' ? this.serverSeed : null
     };
   }
 }

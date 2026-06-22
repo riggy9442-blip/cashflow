@@ -146,6 +146,8 @@ export default function Game({ user, onUpdateBalance }) {
   const [countdown, setCountdown] = useState(0);
   const [players, setPlayers] = useState([]);
   const [history, setHistory] = useState([]);
+  const [serverHash, setServerHash] = useState('');
+  const [serverSeed, setServerSeed] = useState(null);
   
   // Chat State
   const [chatMessages, setChatMessages] = useState([]);
@@ -205,6 +207,8 @@ export default function Game({ user, onUpdateBalance }) {
       setMultiplier(state.multiplier);
       setPlayers(state.players);
       setHistory(state.history);
+      setServerHash(state.serverHash || '');
+      setServerSeed(state.serverSeed || null);
     });
 
     newSocket.on('gameCountdown', (count) => {
@@ -220,6 +224,7 @@ export default function Game({ user, onUpdateBalance }) {
       setStatus('CRASHED');
       setMultiplier(data.multiplier);
       setPlayers(data.players);
+      setServerSeed(data.serverSeed);
       setHistory(prev => [data.multiplier, ...prev].slice(0, 20));
       if (crashAudioRef.current) crashAudioRef.current();
       toast.error(`Flew away at ${data.multiplier}x!`);
@@ -340,6 +345,13 @@ export default function Game({ user, onUpdateBalance }) {
               ✈️
             </div>
           )}
+
+          {/* Provably Fair Info */}
+          <div style={{ position: 'absolute', bottom: '10px', right: '10px', fontSize: '0.75rem', color: 'var(--text-secondary)', zIndex: 10, textAlign: 'right', backgroundColor: 'rgba(0,0,0,0.5)', padding: '0.25rem 0.5rem', borderRadius: '4px' }}>
+            <div style={{ opacity: 0.7 }}>Provably Fair 🛡️</div>
+            <div>Hash: <span style={{fontFamily: 'monospace'}}>{serverHash.slice(0, 16)}...</span></div>
+            {serverSeed && <div>Seed: <span style={{fontFamily: 'monospace', color: 'var(--success-color)'}}>{serverSeed.slice(0, 16)}...</span></div>}
+          </div>
         </div>
 
         {/* Dual Betting Controls */}

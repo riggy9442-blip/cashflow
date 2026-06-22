@@ -189,6 +189,41 @@ app.get('/api/leaderboard', async (req, res) => {
   }
 });
 
+// ─── Admin Routes ────────────────────────────────────────────────────────────
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+
+app.post('/api/admin/stats', async (req, res) => {
+  const { password } = req.body;
+  if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    let users;
+    if (useMongo) {
+      users = await User.find({}, 'username phone balance createdAt').sort({ balance: -1 });
+    } else {
+      const db = await getDb();
+      users = await db.all('SELECT username, phone, balance FROM users ORDER BY balance DESC');
+    }
+    
+    const totalBalance = users.reduce((sum, u) => sum + (u.balance || 0), 0);
+    res.json({ users, totalBalance, count: users.length });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/admin/adjust-balance', async (req, res) => {
+  const { password, targetUsername, amount } = req.body;
+  if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    await addBalance(targetUsername, amount);
+    res.json({ success: true, message: `Added ${amount} to ${targetUsername}` });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ─── Serve Frontend ───────────────────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, '../dist')));
 app.use((req, res) => {

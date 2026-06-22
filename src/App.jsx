@@ -6,6 +6,7 @@ import Game from './pages/Game';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Leaderboard from './pages/Leaderboard';
+import Admin from './pages/Admin';
 
 function App() {
   const [user, setUser] = useState(() => {
@@ -58,6 +59,7 @@ function App() {
             <Route path="/login" element={<Login onLogin={handleLogin} />} />
             <Route path="/register" element={<Register onLogin={handleLogin} />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/admin" element={<Admin />} />
           </Routes>
         </main>
       </Router>

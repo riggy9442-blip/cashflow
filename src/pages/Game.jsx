@@ -151,6 +151,7 @@ export default function Game({ user, onUpdateBalance }) {
   const [countdown, setCountdown] = useState(0);
   const [players, setPlayers] = useState([]);
   const [history, setHistory] = useState([]);
+  const [jackpot, setJackpot] = useState(0);
   const [serverHash, setServerHash] = useState('');
   const [serverSeed, setServerSeed] = useState(null);
   
@@ -277,6 +278,7 @@ export default function Game({ user, onUpdateBalance }) {
 
     newSocket.on('chatHistory', (history) => setChatMessages(history));
     newSocket.on('newMessage', (msg) => setChatMessages(prev => [...prev, msg]));
+    newSocket.on('jackpotUpdate', (amount) => setJackpot(amount));
 
     return () => newSocket.close();
   }, [navigate]);
@@ -358,6 +360,14 @@ export default function Game({ user, onUpdateBalance }) {
         {/* Canvas / Animation Area */}
         <div className={`canvas-container ${status === 'CRASHED' ? 'crash-shake' : ''}`} style={{ position: 'relative', overflow: 'hidden' }}>
           
+          {/* Jackpot Banner */}
+          {jackpot > 0 && (
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: 'rgba(255, 193, 7, 0.2)', color: '#ffc107', textAlign: 'center', padding: '0.2rem', fontWeight: 'bold', fontSize: '0.9rem', zIndex: 10, display: 'flex', justifyContent: 'center', gap: '0.5rem', borderBottom: '1px solid rgba(255, 193, 7, 0.4)' }}>
+              <span>🏆 PROGRESSIVE JACKPOT:</span>
+              <span style={{ fontFamily: 'monospace' }}>{jackpot.toFixed(2)} KSH</span>
+            </div>
+          )}
+
           <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', overflow: 'visible' }} viewBox="0 0 100 100" preserveAspectRatio="none">
             <path 
               d={drawPath()} 
@@ -429,13 +439,21 @@ export default function Game({ user, onUpdateBalance }) {
         
         <div className="chat-header">Live Chat</div>
         <div className="chat-messages">
-          {chatMessages.map((msg, i) => (
-            <div key={i} style={{ fontSize: '0.9rem' }}>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginRight: '0.5rem' }}>{msg.time}</span>
-              <strong style={{ color: 'var(--accent-color)', marginRight: '0.5rem' }}>{msg.username}:</strong>
-              <span>{msg.message}</span>
-            </div>
-          ))}
+          {chatMessages.map((msg, i) => {
+            const isSystem = msg.username === 'SYSTEM';
+            return (
+              <div key={i} style={{ fontSize: '0.9rem', backgroundColor: isSystem ? 'rgba(255,193,7,0.1)' : 'transparent', padding: isSystem ? '0.25rem' : '0', borderRadius: '4px' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginRight: '0.5rem' }}>{msg.time}</span>
+                {msg.level && msg.level !== 'Bronze' && !isSystem && (
+                  <span style={{ fontSize: '0.75rem', marginRight: '0.3rem', padding: '0.1rem 0.3rem', borderRadius: '4px', backgroundColor: msg.level === 'Platinum' ? '#e5e4e2' : msg.level === 'Gold' ? '#ffd700' : '#c0c0c0', color: '#000', fontWeight: 'bold' }}>
+                    {msg.level === 'Platinum' ? '💎' : msg.level === 'Gold' ? '🥇' : '🥈'}
+                  </span>
+                )}
+                <strong style={{ color: isSystem ? '#ffc107' : 'var(--accent-color)', marginRight: '0.5rem' }}>{msg.username}:</strong>
+                <span style={{ color: isSystem ? '#ffc107' : 'inherit', fontWeight: isSystem ? 'bold' : 'normal' }}>{msg.message}</span>
+              </div>
+            );
+          })}
           <div ref={chatEndRef} />
         </div>
         <form className="chat-input-container" onSubmit={sendChat}>

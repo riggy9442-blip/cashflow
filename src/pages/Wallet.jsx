@@ -8,6 +8,8 @@ export default function Wallet({ user }) {
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [balance, setBalance] = useState(user.balance);
+  const [xp, setXp] = useState(user.xp || 0);
+  const [level, setLevel] = useState(user.level || 'Bronze');
 
   // Deposit / Withdraw State
   const [actionType, setActionType] = useState(null); // 'deposit' | 'withdraw' | null
@@ -28,10 +30,14 @@ export default function Wallet({ user }) {
         const data = await res.json();
         if (Array.isArray(data)) setTransactions(data);
         
-        // Also fetch latest balance
+        // Also fetch latest balance and XP
         const bRes = await fetch(`/api/balance/${user.username}`);
         const bData = await bRes.json();
-        if (bData.balance !== undefined) setBalance(bData.balance);
+        if (bData.balance !== undefined) {
+          setBalance(bData.balance);
+          setXp(bData.xp || 0);
+          setLevel(bData.level || 'Bronze');
+        }
       } else {
         const res = await fetch(`/api/referrals/${user.username}`);
         const data = await res.json();
@@ -105,10 +111,42 @@ export default function Wallet({ user }) {
     }
   };
 
+  // Calculate progress to next level
+  const getLevelInfo = () => {
+    let nextLevelXP = 1000;
+    let badgeColor = '#cd7f32'; // Bronze
+    if (level === 'Silver') { nextLevelXP = 5000; badgeColor = '#c0c0c0'; }
+    else if (level === 'Gold') { nextLevelXP = 20000; badgeColor = '#ffd700'; }
+    else if (level === 'Platinum') { nextLevelXP = xp; badgeColor = '#e5e4e2'; }
+    
+    let progress = level === 'Platinum' ? 100 : (xp / nextLevelXP) * 100;
+    return { progress: Math.min(progress, 100), badgeColor, nextLevelXP };
+  };
+
+  const { progress, badgeColor, nextLevelXP } = getLevelInfo();
+
   return (
     <div className="container" style={{ paddingTop: '2rem', paddingBottom: '2rem' }}>
       <div className="wallet-header">
-        <h1>Your Wallet</h1>
+        <div>
+          <h1>Your Wallet</h1>
+          
+          {/* VIP Level Badge & Progress */}
+          <div style={{ marginTop: '1rem', background: 'var(--bg-panel)', padding: '1rem', borderRadius: '8px', border: `1px solid ${badgeColor}40` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', alignItems: 'center' }}>
+              <span style={{ fontWeight: 'bold', color: badgeColor, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                <LucideArrowUpRight size={16} /> VIP Level: {level}
+              </span>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                {level === 'Platinum' ? 'MAX LEVEL' : `${xp} / ${nextLevelXP} XP`}
+              </span>
+            </div>
+            <div style={{ height: '8px', background: 'var(--bg-secondary)', borderRadius: '4px', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${progress}%`, background: badgeColor, transition: 'width 0.3s ease' }}></div>
+            </div>
+          </div>
+        </div>
+
         <div className="wallet-balance-card">
           <p>Available Balance</p>
           <h2>KSH {typeof balance === 'number' ? balance.toFixed(2) : balance}</h2>

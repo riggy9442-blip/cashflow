@@ -234,8 +234,14 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('sendMessage', ({ username, message }) => {
-    const chatMsg = { username, message, time: new Date().toLocaleTimeString() };
+  socket.on('sendMessage', async ({ username, message }) => {
+    let level = 'Bronze';
+    try {
+      const user = await findUser(username);
+      if (user) level = user.level || 'Bronze';
+    } catch (e) {}
+    
+    const chatMsg = { username, message, time: new Date().toLocaleTimeString(), level };
     chatHistory.push(chatMsg);
     if (chatHistory.length > 50) chatHistory.shift();
     io.emit('newMessage', chatMsg);

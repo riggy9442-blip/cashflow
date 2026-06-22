@@ -96,8 +96,8 @@ class GameState {
     this.interval = setInterval(() => {
       // Calculate multiplier based on time elapsed to create exponential curve
       const elapsed = Date.now() - this.startTime;
-      // Formula: m = e^(rt), roughly 0.00006 for a smooth curve
-      this.multiplier = Math.max(1.0, Math.pow(Math.E, 0.00006 * elapsed));
+      // Formula: m = e^(rt) — 0.0002 reaches 2x in ~3.5s, feels like real Aviator
+      this.multiplier = Math.max(1.0, Math.pow(Math.E, 0.0002 * elapsed));
       
       // Process bot cashouts
       this.bots.forEach(bot => {

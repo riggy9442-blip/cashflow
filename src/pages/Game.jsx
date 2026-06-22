@@ -262,7 +262,7 @@ export default function Game({ user, onUpdateBalance }) {
     const logMult = Math.min(Math.log10(mult), 1.5); // Caps visual curve at ~30x
     const x = Math.min(logMult * 60 + 10, 90); 
     const y = 100 - Math.min(logMult * 60 + 10, 80);
-    return \`M 0 100 Q \${x * 0.4} 100 \${x} \${y}\`;
+    return `M 0 100 Q ${x * 0.4} 100 ${x} ${y}`;
   };
 
   const planePos = () => {
@@ -290,7 +290,7 @@ export default function Game({ user, onUpdateBalance }) {
         </div>
 
         {/* Canvas / Animation Area */}
-        <div className={\`canvas-container \${status === 'CRASHED' ? 'crash-shake' : ''}\`} style={{ position: 'relative', overflow: 'hidden' }}>
+        <div className={`canvas-container ${status === 'CRASHED' ? 'crash-shake' : ''}`} style={{ position: 'relative', overflow: 'hidden' }}>
           
           <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', overflow: 'visible' }} viewBox="0 0 100 100" preserveAspectRatio="none">
             <path 
@@ -302,7 +302,7 @@ export default function Game({ user, onUpdateBalance }) {
             />
             {/* Fill under the curve */}
             <path 
-              d={\`\${drawPath()} L \${pos.x} 100 L 0 100 Z\`} 
+              d={`${drawPath()} L ${pos.x} 100 L 0 100 Z`} 
               fill="rgba(233, 69, 96, 0.1)" 
               style={{ transition: 'd 0.1s linear' }}
             />
@@ -313,7 +313,7 @@ export default function Game({ user, onUpdateBalance }) {
              {status === 'CRASHED' && <h2 style={{ color: 'var(--accent-color)' }}>FLEW AWAY</h2>}
           </div>
           
-          <div className={\`multiplier-display \${status === 'CRASHED' ? 'crashed' : ''}\`} style={{ zIndex: 10 }}>
+          <div className={`multiplier-display ${status === 'CRASHED' ? 'crashed' : ''}`} style={{ zIndex: 10 }}>
             {multiplier}x
           </div>
 
@@ -321,10 +321,10 @@ export default function Game({ user, onUpdateBalance }) {
           {status !== 'WAITING' && (
             <div style={{ 
               position: 'absolute', 
-              bottom: \`\${100 - pos.y}%\`, 
-              left: \`\${pos.x}%\`, 
+              bottom: `${100 - pos.y}%`, 
+              left: `${pos.x}%`, 
               fontSize: '3rem', 
-              transform: \`translate(-50%, 50%) rotate(\${status === 'CRASHED' ? '90deg' : pos.rotate + 'deg'})\`, 
+              transform: `translate(-50%, 50%) rotate(${status === 'CRASHED' ? '90deg' : pos.rotate + 'deg'})`, 
               transition: status === 'CRASHED' ? 'all 0.5s ease-out' : 'all 0.1s linear',
               opacity: status === 'CRASHED' ? 0 : 1,
               zIndex: 20
@@ -350,7 +350,7 @@ export default function Game({ user, onUpdateBalance }) {
           {players.map((p, i) => (
             <div key={i} className="flex justify-between items-center" style={{ padding: '0.5rem', backgroundColor: i%2===0?'transparent':'var(--bg-primary)' }}>
               <span>{p.username}</span>
-              <span>{p.cashedOut ? <span style={{color: 'var(--success-color)'}}>KSH {p.winnings.toFixed(2)}</span> : \`KSH \${p.betAmount}\`}</span>
+              <span>{p.cashedOut ? <span style={{color: 'var(--success-color)'}}>KSH {p.winnings.toFixed(2)}</span> : `KSH ${p.betAmount}`}</span>
             </div>
           ))}
         </div>

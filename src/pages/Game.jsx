@@ -277,23 +277,28 @@ export default function Game({ user, onUpdateBalance }) {
     setChatInput('');
   };
 
-  // SVG Curve Math
+  // SVG Curve Math — uses natural log so movement is proportional at all multiplier ranges
+  const getCurvePos = (mult) => {
+    // Progress: 0 at 1x, 1.0 at 50x (log scale)
+    const progress = Math.min(Math.log(mult) / Math.log(50), 1.0);
+    const x = progress * 88 + 2;               // 2% to 90% from left
+    const y = 93 - progress * 86;              // 93% → 7% from top (SVG y)
+    return { x, y, progress };
+  };
+
   const drawPath = () => {
-    if (status === 'WAITING') return "M 0 100 L 0 100";
+    if (status === 'WAITING') return 'M 0 93 L 2 93';
     const mult = parseFloat(multiplier);
-    const logMult = Math.min(Math.log10(mult), 1.5); // Caps visual curve at ~30x
-    const x = Math.min(logMult * 60 + 10, 90); 
-    const y = 100 - Math.min(logMult * 60 + 10, 80);
-    return `M 0 100 Q ${x * 0.4} 100 ${x} ${y}`;
+    const { x, y } = getCurvePos(mult);
+    // Cubic bezier: horizontal takeoff, smooth upward sweep
+    return `M 0 93 C ${x * 0.25} 93, ${x * 0.65} ${y + 18}, ${x} ${y}`;
   };
 
   const planePos = () => {
-    if (status === 'WAITING') return { x: 0, y: 100, rotate: 0 };
+    if (status === 'WAITING') return { x: 2, y: 93, rotate: 0 };
     const mult = parseFloat(multiplier);
-    const logMult = Math.min(Math.log10(mult), 1.5);
-    const x = Math.min(logMult * 60 + 10, 90);
-    const y = 100 - Math.min(logMult * 60 + 10, 80);
-    return { x, y, rotate: -Math.min(y * 0.4, 30) };
+    const { x, y, progress } = getCurvePos(mult);
+    return { x, y, rotate: -Math.min(progress * 40, 38) };
   };
 
   const pos = planePos();
@@ -346,9 +351,8 @@ export default function Game({ user, onUpdateBalance }) {
             />
             {/* Fill under the curve */}
             <path 
-              d={`${drawPath()} L ${pos.x} 100 L 0 100 Z`} 
-              fill="rgba(233, 69, 96, 0.1)" 
-              style={{ transition: 'd 0.1s linear' }}
+              d={`M 0 93 C ${(() => { const {x,y} = getCurvePos(parseFloat(multiplier)); return `${x*0.25} 93, ${x*0.65} ${y+18}, ${x} ${y} L ${x} 93 L 0 93 Z`; })()}`} 
+              fill="rgba(233, 69, 96, 0.12)" 
             />
           </svg>
 

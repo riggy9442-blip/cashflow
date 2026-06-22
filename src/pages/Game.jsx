@@ -24,9 +24,14 @@ export default function Game({ user, onUpdateBalance }) {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const chatEndRef = useRef(null);
+  
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   useEffect(() => {
-    if (!user) {
+    if (!userRef.current) {
       navigate('/login');
       return;
     }
@@ -70,20 +75,20 @@ export default function Game({ user, onUpdateBalance }) {
     
     newSocket.on('betConfirmed', (amount) => {
       setHasBet(true);
-      onUpdateBalance(user.balance - amount);
+      onUpdateBalance(userRef.current.balance - amount);
     });
 
     newSocket.on('cashOutSuccess', (amount) => {
       setCashedOut(true);
       setWinAmount(amount);
-      onUpdateBalance(user.balance + amount);
+      onUpdateBalance(userRef.current.balance + amount);
     });
 
     newSocket.on('chatHistory', (history) => setChatMessages(history));
     newSocket.on('newMessage', (msg) => setChatMessages(prev => [...prev, msg]));
 
     return () => newSocket.close();
-  }, [user, navigate]);
+  }, [navigate]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });

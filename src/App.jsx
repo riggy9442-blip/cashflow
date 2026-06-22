@@ -48,7 +48,7 @@ function App() {
       <main>
         <Routes>
           <Route path="/" element={<Landing />} />
-          <Route path="/game" element={<Game user={user} onUpdateBalance={(bal) => setUser({...user, balance: bal})} />} />
+          <Route path="/game" element={<Game user={user} onUpdateBalance={(bal) => setUser(prev => ({...prev, balance: bal}))} />} />
           <Route path="/login" element={<Login onLogin={handleLogin} />} />
           <Route path="/register" element={<Register onLogin={handleLogin} />} />
         </Routes>

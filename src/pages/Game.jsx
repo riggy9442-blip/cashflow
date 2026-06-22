@@ -17,7 +17,12 @@ function BetPanel({ panelId, socket, status, user, multiplier, onWin, onBetPlace
 
   const placeBet = () => {
     if (betAmount > user.balance || betAmount <= 0) return toast.error('Invalid bet amount');
-    socket.emit('placeBet', { username: user.username, amount: betAmount, panelId });
+    socket.emit('placeBet', { 
+      username: user.username, 
+      amount: betAmount, 
+      panelId,
+      autoCashOut: autoCashOut ? targetMultiplier : null
+    });
   };
 
   const cashOut = () => {
@@ -189,11 +194,23 @@ export default function Game({ user, onUpdateBalance }) {
         osc.stop(actx.currentTime + duration);
       };
 
-      tickAudioRef.current = () => playBeep(800, 'sine', 0.1, 0.05);
-      crashAudioRef.current = () => playBeep(150, 'sawtooth', 0.5, 0.2);
+      tickAudioRef.current = (multiplier) => {
+        // Engine hum rising in pitch
+        const baseFreq = 150;
+        const freq = baseFreq + (Math.log(multiplier || 1) * 100);
+        playBeep(freq, 'square', 0.08, 0.03);
+      };
+      
+      crashAudioRef.current = () => {
+        // Explosion swoosh
+        playBeep(100, 'sawtooth', 0.8, 0.3);
+        setTimeout(() => playBeep(50, 'square', 0.4, 0.2), 100);
+      };
+      
       cashOutAudioRef.current = () => {
+        // Cha-ching!
         playBeep(1200, 'sine', 0.1, 0.1);
-        setTimeout(() => playBeep(1600, 'sine', 0.3, 0.1), 100);
+        setTimeout(() => playBeep(1600, 'sine', 0.3, 0.15), 100);
       };
     } catch (e) {
       console.log('Web Audio not supported');
@@ -223,7 +240,7 @@ export default function Game({ user, onUpdateBalance }) {
 
     newSocket.on('gameTick', (data) => {
       setMultiplier(data.multiplier);
-      if (tickAudioRef.current && Math.random() > 0.8) tickAudioRef.current();
+      if (tickAudioRef.current && Math.random() > 0.5) tickAudioRef.current(parseFloat(data.multiplier));
     });
 
     newSocket.on('gameCrashed', (data) => {
@@ -254,9 +271,7 @@ export default function Game({ user, onUpdateBalance }) {
         }
         if (cashOutAudioRef.current) cashOutAudioRef.current();
       }
-    });
-
-    newSocket.on('betFailed', (reason) => {
+    });    newSocket.on('betFailed', (reason) => {
       toast.error('Bet Failed: ' + reason);
     });
 

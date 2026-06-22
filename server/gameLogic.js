@@ -1,8 +1,9 @@
 import crypto from 'crypto';
 
 class GameState {
-  constructor(io) {
+  constructor(io, onAutoCashOut) {
     this.io = io;
+    this.onAutoCashOut = onAutoCashOut; // Callback for db updates
     this.status = 'WAITING'; // WAITING, IN_PROGRESS, CRASHED
     this.multiplier = 1.0;
     this.serverSeed = this.generateServerSeed();
@@ -106,6 +107,25 @@ class GameState {
         }
       });
 
+      // Process auto-cashouts for real players
+      for (let [key, player] of this.players) {
+        if (!player.cashedOut && player.autoCashOut && this.multiplier >= player.autoCashOut) {
+          // Temporarily set multiplier exactly to their autoCashOut for fair payout
+          const actualMult = this.multiplier;
+          this.multiplier = player.autoCashOut;
+          
+          const winAmount = this.cashOut(player.username, player.panelId);
+          if (winAmount) {
+            // Callback to index.js to handle DB update
+            if (this.onAutoCashOut) {
+              this.onAutoCashOut(player.username, player.panelId, winAmount, player.autoCashOut);
+            }
+          }
+          
+          this.multiplier = actualMult; // restore
+        }
+      }
+
       if (this.multiplier >= this.crashPoint) {
         this.multiplier = this.crashPoint; // Exact crash point
         this.crashGame();
@@ -141,7 +161,7 @@ class GameState {
     }, 3000);
   }
 
-  placeBet(username, amount, panelId = 1) {
+  placeBet(username, amount, panelId = 1, autoCashOut = null) {
     if (this.status !== 'WAITING') return false;
     
     const key = `${username}-${panelId}`;
@@ -150,7 +170,8 @@ class GameState {
       betAmount: amount,
       cashedOut: false,
       winnings: 0,
-      panelId
+      panelId,
+      autoCashOut: autoCashOut ? parseFloat(autoCashOut) : null
     });
     
     this.io.emit('playersUpdate', Array.from(this.players.values()));

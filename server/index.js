@@ -33,7 +33,16 @@ if (useMongo) {
 }
 
 // Initialize Game
-const game = new GameState(io);
+const game = new GameState(io, async (username, panelId, winAmount, multiplier) => {
+  try {
+    await addBalance(username, winAmount);
+    await addTransaction(username, 'win', winAmount, { panelId, multiplier, autoCashOut: true });
+    const newBalance = await getUserBalance(username);
+    io.emit('cashOutSuccess', { amount: winAmount, username, panelId, newBalance });
+  } catch (err) {
+    console.error('Auto-cashout DB error:', err);
+  }
+});
 const chatHistory = [];
 
 // ─── DB Helpers (abstracted) ─────────────────────────────────────────────────
@@ -97,15 +106,15 @@ io.on('connection', (socket) => {
   socket.emit('gameState', game.getState());
   socket.emit('chatHistory', chatHistory);
 
-  socket.on('placeBet', async ({ username, amount, panelId }) => {
+  socket.on('placeBet', async ({ username, amount, panelId, autoCashOut }) => {
     try {
       const balance = await getUserBalance(username);
       if (balance === null || balance < amount) {
         return socket.emit('betFailed', 'Insufficient balance');
       }
-      if (game.placeBet(username, amount, panelId)) {
+      if (game.placeBet(username, amount, panelId, autoCashOut)) {
         await deductBalance(username, amount);
-        await addTransaction(username, 'bet', -amount, { panelId });
+        await addTransaction(username, 'bet', -amount, { panelId, autoCashOut });
         
         // Process referral commission asynchronously
         processReferralCommission(username, amount);

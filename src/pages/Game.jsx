@@ -2,8 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { Send } from 'lucide-react';
+import { useToast } from '../ToastContext';
 
-function BetPanel({ panelId, socket, status, user, multiplier }) {
+function BetPanel({ panelId, socket, status, user, multiplier, onWin, onBetPlaced }) {
+  const toast = useToast();
   const [betAmount, setBetAmount] = useState(10);
   const [hasBet, setHasBet] = useState(false);
   const [cashedOut, setCashedOut] = useState(false);
@@ -14,7 +16,7 @@ function BetPanel({ panelId, socket, status, user, multiplier }) {
   const [targetMultiplier, setTargetMultiplier] = useState(2.00);
 
   const placeBet = () => {
-    if (betAmount > user.balance || betAmount <= 0) return alert('Invalid bet amount');
+    if (betAmount > user.balance || betAmount <= 0) return toast.error('Invalid bet amount');
     socket.emit('placeBet', { username: user.username, amount: betAmount, panelId });
   };
 
@@ -52,6 +54,7 @@ function BetPanel({ panelId, socket, status, user, multiplier }) {
     const handleBetConfirmed = (data) => {
       if (data.panelId === panelId && data.username === user.username) {
         setHasBet(true);
+        toast.info(`Bet of KSH ${data.amount} placed!`);
       }
     };
     
@@ -59,6 +62,7 @@ function BetPanel({ panelId, socket, status, user, multiplier }) {
       if (data.panelId === panelId && data.username === user.username) {
         setCashedOut(true);
         setWinAmount(data.amount);
+        toast.win(`Won KSH ${data.amount.toFixed(2)}! 🎉`);
       }
     };
     
@@ -133,6 +137,7 @@ function BetPanel({ panelId, socket, status, user, multiplier }) {
 
 export default function Game({ user, onUpdateBalance }) {
   const navigate = useNavigate();
+  const toast = useToast();
   const [socket, setSocket] = useState(null);
   
   // Game State
@@ -217,6 +222,7 @@ export default function Game({ user, onUpdateBalance }) {
       setPlayers(data.players);
       setHistory(prev => [data.multiplier, ...prev].slice(0, 20));
       if (crashAudioRef.current) crashAudioRef.current();
+      toast.error(`Flew away at ${data.multiplier}x!`);
     });
 
     newSocket.on('playersUpdate', (p) => setPlayers(p));
@@ -235,7 +241,7 @@ export default function Game({ user, onUpdateBalance }) {
     });
 
     newSocket.on('betFailed', (reason) => {
-      alert('Bet Failed: ' + reason);
+      toast.error('Bet Failed: ' + reason);
     });
 
     newSocket.on('chatHistory', (history) => setChatMessages(history));

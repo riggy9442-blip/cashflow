@@ -36,7 +36,7 @@ io.on('connection', (socket) => {
   socket.emit('gameState', game.getState());
   socket.emit('chatHistory', chatHistory);
 
-  socket.on('placeBet', async ({ username, amount }) => {
+  socket.on('placeBet', async ({ username, amount, panelId }) => {
     try {
       const db = await getDb();
       const user = await db.get('SELECT balance FROM users WHERE username = ?', [username]);
@@ -44,9 +44,9 @@ io.on('connection', (socket) => {
         return socket.emit('betFailed', 'Insufficient balance');
       }
 
-      if (game.placeBet(username, amount)) {
+      if (game.placeBet(username, amount, panelId)) {
         await db.run('UPDATE users SET balance = balance - ? WHERE username = ?', [amount, username]);
-        socket.emit('betConfirmed', amount);
+        socket.emit('betConfirmed', { amount, username, panelId });
       } else {
         socket.emit('betFailed', 'Could not place bet');
       }
@@ -55,16 +55,16 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('cashOut', async (username) => {
-    const winnings = game.cashOut(username);
-    if (winnings !== false) {
-      try {
+  socket.on('cashOut', async ({ username, panelId }) => {
+    try {
+      const winAmount = game.cashOut(username, panelId);
+      if (winAmount) {
         const db = await getDb();
-        await db.run('UPDATE users SET balance = balance + ? WHERE username = ?', [winnings, username]);
-        socket.emit('cashOutSuccess', winnings);
-      } catch (error) {
-        console.error('Failed to update balance on cashout', error);
+        await db.run('UPDATE users SET balance = balance + ? WHERE username = ?', [winAmount, username]);
+        socket.emit('cashOutSuccess', { amount: winAmount, username, panelId });
       }
+    } catch (error) {
+      console.error('Cashout error', error);
     }
   });
 

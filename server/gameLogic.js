@@ -5,15 +5,35 @@ class GameState {
     this.io = io;
     this.status = 'WAITING'; // WAITING, IN_PROGRESS, CRASHED
     this.multiplier = 1.0;
-    this.crashPoint = 0;
-    this.players = new Map(); // socket.id -> { betAmount, cashedOut, winnings, username }
+    this.crashPoint = 1.0;
+    this.players = new Map(); // username -> { username, betAmount, cashedOut, winnings }
     this.history = [];
-    
-    this.tickRate = 100; // ms
-    this.interval = null;
     this.startTime = 0;
+    this.tickRate = 100; // ms
+    this.bots = [];
     
     this.startWaitingPhase();
+  }
+
+  generateBots() {
+    const numBots = Math.floor(Math.random() * 15) + 10; // 10 to 25 bots
+    this.bots = [];
+    const prefixes = ['071', '072', '079', '011', '074', 'user', 'pro', 'win'];
+    for(let i=0; i<numBots; i++) {
+      const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+      const name = `${prefix}***${Math.floor(Math.random() * 99)}`;
+      const betAmount = (Math.floor(Math.random() * 100) + 1) * 10; // 10 to 1000 KSH
+      
+      // Bots usually cash out early, sometimes hold longer
+      let targetMultiplier = 1.05 + (Math.random() * 1.5); // 1.05x to 2.55x
+      if (Math.random() > 0.8) targetMultiplier += Math.random() * 5; // 20% chance to hold up to 7x
+      
+      this.bots.push({
+        username: name,
+        betAmount,
+        targetMultiplier
+      });
+    }
   }
 
   generateCrashPoint() {
@@ -27,15 +47,26 @@ class GameState {
     this.status = 'WAITING';
     this.multiplier = 1.0;
     this.players.clear();
-    this.io.emit('gameState', this.getState());
+    this.generateBots();
     
     let countdown = 5;
-    const waitInterval = setInterval(() => {
+    this.io.emit('gameState', this.getState());
+    
+    // Simulate bots betting over time
+    this.bots.forEach(bot => {
+      setTimeout(() => {
+        if(this.status === 'WAITING') {
+          this.placeBet(bot.username, bot.betAmount);
+        }
+      }, Math.random() * 4000);
+    });
+
+    const interval = setInterval(() => {
       countdown--;
       this.io.emit('gameCountdown', countdown);
       
       if (countdown <= 0) {
-        clearInterval(waitInterval);
+        clearInterval(interval);
         this.startGamePhase();
       }
     }, 1000);
@@ -55,6 +86,13 @@ class GameState {
       // Formula: m = e^(rt), roughly 0.00006 for a smooth curve
       this.multiplier = Math.max(1.0, Math.pow(Math.E, 0.00006 * elapsed));
       
+      // Process bot cashouts
+      this.bots.forEach(bot => {
+        if (this.multiplier >= bot.targetMultiplier) {
+          this.cashOut(bot.username, 1);
+        }
+      });
+
       if (this.multiplier >= this.crashPoint) {
         this.multiplier = this.crashPoint; // Exact crash point
         this.crashGame();
@@ -89,24 +127,27 @@ class GameState {
     }, 3000);
   }
 
-  placeBet(username, amount) {
+  placeBet(username, amount, panelId = 1) {
     if (this.status !== 'WAITING') return false;
     
-    this.players.set(username, {
+    const key = `${username}-${panelId}`;
+    this.players.set(key, {
       username,
       betAmount: amount,
       cashedOut: false,
-      winnings: 0
+      winnings: 0,
+      panelId
     });
     
     this.io.emit('playersUpdate', Array.from(this.players.values()));
     return true;
   }
 
-  cashOut(username) {
+  cashOut(username, panelId = 1) {
     if (this.status !== 'IN_PROGRESS') return false;
     
-    const player = this.players.get(username);
+    const key = `${username}-${panelId}`;
+    const player = this.players.get(key);
     if (!player || player.cashedOut) return false;
     
     player.cashedOut = true;

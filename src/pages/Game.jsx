@@ -3,6 +3,134 @@ import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { Send } from 'lucide-react';
 
+function BetPanel({ panelId, socket, status, user, multiplier }) {
+  const [betAmount, setBetAmount] = useState(10);
+  const [hasBet, setHasBet] = useState(false);
+  const [cashedOut, setCashedOut] = useState(false);
+  const [winAmount, setWinAmount] = useState(0);
+  
+  const [autoBet, setAutoBet] = useState(false);
+  const [autoCashOut, setAutoCashOut] = useState(false);
+  const [targetMultiplier, setTargetMultiplier] = useState(2.00);
+
+  const placeBet = () => {
+    if (betAmount > user.balance || betAmount <= 0) return alert('Invalid bet amount');
+    socket.emit('placeBet', { username: user.username, amount: betAmount, panelId });
+  };
+
+  const cashOut = () => {
+    socket.emit('cashOut', { username: user.username, panelId });
+  };
+
+  // Auto Bet Logic
+  useEffect(() => {
+    if (status === 'WAITING' && autoBet && !hasBet) {
+      const timer = setTimeout(() => {
+        placeBet();
+      }, 1000 + Math.random() * 2000);
+      return () => clearTimeout(timer);
+    }
+    if (status === 'WAITING') {
+      setCashedOut(false);
+      setWinAmount(0);
+    }
+  }, [status, autoBet, hasBet]);
+
+  // Auto Cashout Logic
+  useEffect(() => {
+    if (status === 'IN_PROGRESS' && hasBet && !cashedOut && autoCashOut) {
+      if (parseFloat(multiplier) >= targetMultiplier) {
+        cashOut();
+      }
+    }
+  }, [multiplier, status, hasBet, cashedOut, autoCashOut, targetMultiplier]);
+
+  // Listen to socket specifically for this panel
+  useEffect(() => {
+    if (!socket) return;
+    
+    const handleBetConfirmed = (data) => {
+      if (data.panelId === panelId && data.username === user.username) {
+        setHasBet(true);
+      }
+    };
+    
+    const handleCashOutSuccess = (data) => {
+      if (data.panelId === panelId && data.username === user.username) {
+        setCashedOut(true);
+        setWinAmount(data.amount);
+      }
+    };
+    
+    const handleGameCrashed = () => {
+      if (hasBet && !cashedOut) {
+        setHasBet(false);
+      }
+    };
+
+    socket.on('betConfirmed', handleBetConfirmed);
+    socket.on('cashOutSuccess', handleCashOutSuccess);
+    socket.on('gameCrashed', handleGameCrashed);
+    
+    return () => {
+      socket.off('betConfirmed', handleBetConfirmed);
+      socket.off('cashOutSuccess', handleCashOutSuccess);
+      socket.off('gameCrashed', handleGameCrashed);
+    };
+  }, [socket, panelId, user.username, hasBet, cashedOut]);
+
+  return (
+    <div className="bet-panel flex-col gap-2" style={{ backgroundColor: 'var(--bg-panel)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)', flex: 1 }}>
+      {/* Toggles */}
+      <div className="flex justify-between items-center" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={autoBet} onChange={e => setAutoBet(e.target.checked)} /> Auto Bet
+        </label>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={autoCashOut} onChange={e => setAutoCashOut(e.target.checked)} /> Auto Cashout
+          {autoCashOut && (
+            <input type="number" step="0.1" value={targetMultiplier} onChange={e => setTargetMultiplier(parseFloat(e.target.value))} style={{ width: '60px', padding: '0.2rem', background: 'var(--bg-primary)', color: 'white', border: '1px solid var(--border-color)' }} />
+          )}
+        </label>
+      </div>
+
+      <div className="flex justify-between items-center gap-4">
+        <div style={{ display: 'flex', alignItems: 'center', backgroundColor: 'var(--bg-primary)', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+          <button onClick={() => setBetAmount(Math.max(10, betAmount - 10))} disabled={hasBet && status !== 'WAITING'} style={{ padding: '0.75rem', background: 'transparent', border: 'none', color: 'white', cursor: 'pointer' }}>-</button>
+          <input 
+            type="number" 
+            value={betAmount} 
+            onChange={(e) => setBetAmount(Number(e.target.value))}
+            disabled={hasBet && status !== 'WAITING'}
+            style={{ width: '60px', textAlign: 'center', background: 'transparent', border: 'none', color: 'white', fontSize: '1.25rem', fontWeight: 'bold', outline: 'none' }}
+          />
+          <button onClick={() => setBetAmount(betAmount + 10)} disabled={hasBet && status !== 'WAITING'} style={{ padding: '0.75rem', background: 'transparent', border: 'none', color: 'white', cursor: 'pointer' }}>+</button>
+        </div>
+        
+        {status === 'WAITING' ? (
+          <button 
+            className={`btn ${hasBet ? 'btn-secondary' : 'btn-success'}`} 
+            style={{ padding: '1rem', fontSize: '1.25rem', flex: 1 }}
+            onClick={placeBet}
+            disabled={hasBet}
+          >
+            {hasBet ? 'Waiting...' : 'BET'}
+          </button>
+        ) : (
+          <button 
+            className={`btn btn-primary`} 
+            style={{ padding: '1rem', fontSize: '1.25rem', flex: 1, backgroundColor: cashedOut ? 'var(--bg-secondary)' : 'var(--accent-color)' }}
+            onClick={cashOut}
+            disabled={status !== 'IN_PROGRESS' || !hasBet || cashedOut}
+          >
+            {cashedOut ? `Win KSH ${winAmount.toFixed(2)}` : 'CASH OUT'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Game({ user, onUpdateBalance }) {
   const navigate = useNavigate();
   const [socket, setSocket] = useState(null);
@@ -14,12 +142,6 @@ export default function Game({ user, onUpdateBalance }) {
   const [players, setPlayers] = useState([]);
   const [history, setHistory] = useState([]);
   
-  // Betting State
-  const [betAmount, setBetAmount] = useState(10);
-  const [hasBet, setHasBet] = useState(false);
-  const [cashedOut, setCashedOut] = useState(false);
-  const [winAmount, setWinAmount] = useState(0);
-  
   // Chat State
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
@@ -30,10 +152,44 @@ export default function Game({ user, onUpdateBalance }) {
     userRef.current = user;
   }, [user]);
 
+  // Audio refs
+  const tickAudioRef = useRef(null);
+  const crashAudioRef = useRef(null);
+  const cashOutAudioRef = useRef(null);
+
   useEffect(() => {
     if (!userRef.current) {
       navigate('/login');
       return;
+    }
+
+    // Synthesize simple audio context for sounds without needing external files
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      const actx = new AudioContext();
+      
+      const playBeep = (freq, type, duration, vol) => {
+        if (actx.state === 'suspended') actx.resume();
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, actx.currentTime);
+        gain.gain.setValueAtTime(vol, actx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, actx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(actx.destination);
+        osc.start();
+        osc.stop(actx.currentTime + duration);
+      };
+
+      tickAudioRef.current = () => playBeep(800, 'sine', 0.1, 0.05);
+      crashAudioRef.current = () => playBeep(150, 'sawtooth', 0.5, 0.2);
+      cashOutAudioRef.current = () => {
+        playBeep(1200, 'sine', 0.1, 0.1);
+        setTimeout(() => playBeep(1600, 'sine', 0.3, 0.1), 100);
+      };
+    } catch (e) {
+      console.log('Web Audio not supported');
     }
 
     const newSocket = io();
@@ -44,12 +200,6 @@ export default function Game({ user, onUpdateBalance }) {
       setMultiplier(state.multiplier);
       setPlayers(state.players);
       setHistory(state.history);
-      
-      if (state.status === 'WAITING') {
-        setHasBet(false);
-        setCashedOut(false);
-        setWinAmount(0);
-      }
     });
 
     newSocket.on('gameCountdown', (count) => {
@@ -58,6 +208,7 @@ export default function Game({ user, onUpdateBalance }) {
 
     newSocket.on('gameTick', (data) => {
       setMultiplier(data.multiplier);
+      if (tickAudioRef.current && Math.random() > 0.8) tickAudioRef.current();
     });
 
     newSocket.on('gameCrashed', (data) => {
@@ -65,27 +216,26 @@ export default function Game({ user, onUpdateBalance }) {
       setMultiplier(data.multiplier);
       setPlayers(data.players);
       setHistory(prev => [data.multiplier, ...prev].slice(0, 20));
-      if (hasBet && !cashedOut) {
-        // Lost
-        setHasBet(false);
-      }
+      if (crashAudioRef.current) crashAudioRef.current();
     });
 
     newSocket.on('playersUpdate', (p) => setPlayers(p));
     
-    newSocket.on('betConfirmed', (amount) => {
-      setHasBet(true);
-      onUpdateBalance(userRef.current.balance - amount);
+    newSocket.on('betConfirmed', (data) => {
+      if (data.username === userRef.current.username) {
+        onUpdateBalance(userRef.current.balance - data.amount);
+      }
+    });
+
+    newSocket.on('cashOutSuccess', (data) => {
+      if (data.username === userRef.current.username) {
+        onUpdateBalance(userRef.current.balance + data.amount);
+        if (cashOutAudioRef.current) cashOutAudioRef.current();
+      }
     });
 
     newSocket.on('betFailed', (reason) => {
       alert('Bet Failed: ' + reason);
-    });
-
-    newSocket.on('cashOutSuccess', (amount) => {
-      setCashedOut(true);
-      setWinAmount(amount);
-      onUpdateBalance(userRef.current.balance + amount);
     });
 
     newSocket.on('chatHistory', (history) => setChatMessages(history));
@@ -98,15 +248,6 @@ export default function Game({ user, onUpdateBalance }) {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
 
-  const placeBet = () => {
-    if (betAmount > user.balance || betAmount <= 0) return alert('Invalid bet amount');
-    socket.emit('placeBet', { username: user.username, amount: betAmount });
-  };
-
-  const cashOut = () => {
-    socket.emit('cashOut', userRef.current.username);
-  };
-
   const sendChat = (e) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
@@ -114,10 +255,31 @@ export default function Game({ user, onUpdateBalance }) {
     setChatInput('');
   };
 
+  // SVG Curve Math
+  const drawPath = () => {
+    if (status === 'WAITING') return "M 0 100 L 0 100";
+    const mult = parseFloat(multiplier);
+    const logMult = Math.min(Math.log10(mult), 1.5); // Caps visual curve at ~30x
+    const x = Math.min(logMult * 60 + 10, 90); 
+    const y = 100 - Math.min(logMult * 60 + 10, 80);
+    return \`M 0 100 Q \${x * 0.4} 100 \${x} \${y}\`;
+  };
+
+  const planePos = () => {
+    if (status === 'WAITING') return { x: 0, y: 100, rotate: 0 };
+    const mult = parseFloat(multiplier);
+    const logMult = Math.min(Math.log10(mult), 1.5);
+    const x = Math.min(logMult * 60 + 10, 90);
+    const y = 100 - Math.min(logMult * 60 + 10, 80);
+    return { x, y, rotate: -Math.min(y * 0.4, 30) };
+  };
+
+  const pos = planePos();
+
   return (
     <div className="game-layout">
       {/* Main Game Area */}
-      <div className="game-main">
+      <div className="game-main flex-col">
         {/* History Bar */}
         <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', padding: '0.5rem', backgroundColor: 'var(--bg-panel)', borderRadius: '8px' }}>
           {history.map((m, i) => (
@@ -128,58 +290,54 @@ export default function Game({ user, onUpdateBalance }) {
         </div>
 
         {/* Canvas / Animation Area */}
-        <div className={`canvas-container ${status === 'CRASHED' ? 'crash-shake' : ''}`}>
-          <div style={{ position: 'absolute', top: '10%', left: '50%', transform: 'translateX(-50%)' }}>
+        <div className={\`canvas-container \${status === 'CRASHED' ? 'crash-shake' : ''}\`} style={{ position: 'relative', overflow: 'hidden' }}>
+          
+          <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', overflow: 'visible' }} viewBox="0 0 100 100" preserveAspectRatio="none">
+            <path 
+              d={drawPath()} 
+              fill="none" 
+              stroke="var(--accent-color)" 
+              strokeWidth="2" 
+              style={{ transition: 'd 0.1s linear' }}
+            />
+            {/* Fill under the curve */}
+            <path 
+              d={\`\${drawPath()} L \${pos.x} 100 L 0 100 Z\`} 
+              fill="rgba(233, 69, 96, 0.1)" 
+              style={{ transition: 'd 0.1s linear' }}
+            />
+          </svg>
+
+          <div style={{ position: 'absolute', top: '10%', left: '50%', transform: 'translateX(-50%)', zIndex: 10 }}>
              {status === 'WAITING' && <h2 style={{ color: 'var(--text-secondary)' }}>Waiting for next round... {countdown > 0 && countdown}</h2>}
-             {status === 'CRASHED' && <h2 style={{ color: 'var(--accent-color)' }}>CRASHED</h2>}
+             {status === 'CRASHED' && <h2 style={{ color: 'var(--accent-color)' }}>FLEW AWAY</h2>}
           </div>
           
-          <div className={`multiplier-display ${status === 'CRASHED' ? 'crashed' : ''}`}>
+          <div className={\`multiplier-display \${status === 'CRASHED' ? 'crashed' : ''}\`} style={{ zIndex: 10 }}>
             {multiplier}x
           </div>
 
-          {/* Jet Animation Placeholder */}
-          {status === 'IN_PROGRESS' && (
-            <div style={{ position: 'absolute', bottom: '20%', left: '20%', fontSize: '4rem', animation: 'flyJet 10s infinite alternate linear', transformOrigin: 'center' }}>
+          {/* Jet Vector Animation */}
+          {status !== 'WAITING' && (
+            <div style={{ 
+              position: 'absolute', 
+              bottom: \`\${100 - pos.y}%\`, 
+              left: \`\${pos.x}%\`, 
+              fontSize: '3rem', 
+              transform: \`translate(-50%, 50%) rotate(\${status === 'CRASHED' ? '90deg' : pos.rotate + 'deg'})\`, 
+              transition: status === 'CRASHED' ? 'all 0.5s ease-out' : 'all 0.1s linear',
+              opacity: status === 'CRASHED' ? 0 : 1,
+              zIndex: 20
+            }}>
               ✈️
             </div>
           )}
         </div>
 
-        {/* Betting Controls */}
-        <div className="betting-controls flex-col">
-          <div className="flex justify-center items-center gap-4">
-            <div style={{ display: 'flex', alignItems: 'center', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
-              <button onClick={() => setBetAmount(Math.max(10, betAmount - 10))} style={{ padding: '1rem', background: 'transparent', border: 'none', color: 'white', cursor: 'pointer' }}>-</button>
-              <input 
-                type="number" 
-                value={betAmount} 
-                onChange={(e) => setBetAmount(Number(e.target.value))}
-                style={{ width: '80px', textAlign: 'center', background: 'transparent', border: 'none', color: 'white', fontSize: '1.25rem', fontWeight: 'bold', outline: 'none' }}
-              />
-              <button onClick={() => setBetAmount(betAmount + 10)} style={{ padding: '1rem', background: 'transparent', border: 'none', color: 'white', cursor: 'pointer' }}>+</button>
-            </div>
-            
-            {status === 'WAITING' ? (
-              <button 
-                className={`btn ${hasBet ? 'btn-secondary' : 'btn-success'}`} 
-                style={{ padding: '1rem 3rem', fontSize: '1.5rem', width: '250px' }}
-                onClick={placeBet}
-                disabled={hasBet}
-              >
-                {hasBet ? 'Waiting...' : 'BET'}
-              </button>
-            ) : (
-              <button 
-                className={`btn btn-primary`} 
-                style={{ padding: '1rem 3rem', fontSize: '1.5rem', width: '250px', backgroundColor: cashedOut ? 'var(--bg-secondary)' : 'var(--accent-color)' }}
-                onClick={cashOut}
-                disabled={status !== 'IN_PROGRESS' || !hasBet || cashedOut}
-              >
-                {cashedOut ? `Win KSH ${winAmount.toFixed(2)}` : 'CASH OUT'}
-              </button>
-            )}
-          </div>
+        {/* Dual Betting Controls */}
+        <div className="flex gap-4" style={{ marginTop: 'auto' }}>
+          <BetPanel panelId={1} socket={socket} status={status} user={user} multiplier={multiplier} />
+          <BetPanel panelId={2} socket={socket} status={status} user={user} multiplier={multiplier} />
         </div>
       </div>
 
@@ -192,7 +350,7 @@ export default function Game({ user, onUpdateBalance }) {
           {players.map((p, i) => (
             <div key={i} className="flex justify-between items-center" style={{ padding: '0.5rem', backgroundColor: i%2===0?'transparent':'var(--bg-primary)' }}>
               <span>{p.username}</span>
-              <span>{p.cashedOut ? <span style={{color: 'var(--success-color)'}}>KSH {p.winnings.toFixed(2)}</span> : `KSH ${p.betAmount}`}</span>
+              <span>{p.cashedOut ? <span style={{color: 'var(--success-color)'}}>KSH {p.winnings.toFixed(2)}</span> : \`KSH \${p.betAmount}\`}</span>
             </div>
           ))}
         </div>

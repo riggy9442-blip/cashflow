@@ -11,7 +11,7 @@ class GameState {
     this.players = new Map(); // username -> { username, betAmount, cashedOut, winnings }
     this.history = [];
     this.startTime = 0;
-    this.tickRate = 100; // ms
+    this.tickRate = 50; // ms — 20fps for smoother animation
     this.bots = [];
     
     this.startWaitingPhase();

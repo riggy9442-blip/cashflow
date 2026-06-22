@@ -277,28 +277,30 @@ export default function Game({ user, onUpdateBalance }) {
     setChatInput('');
   };
 
-  // SVG Curve Math — uses natural log so movement is proportional at all multiplier ranges
+  // SVG Curve Math — sqrt on X (fast early movement), log on Y (height scale)
   const getCurvePos = (mult) => {
-    // Progress: 0 at 1x, 1.0 at 50x (log scale)
-    const progress = Math.min(Math.log(mult) / Math.log(50), 1.0);
-    const x = progress * 88 + 2;               // 2% to 90% from left
-    const y = 93 - progress * 86;              // 93% → 7% from top (SVG y)
-    return { x, y, progress };
+    const m = Math.max(mult, 1.001);
+    // X: square-root gives fast early movement (most rounds end at 1x-3x)
+    const xProgress = Math.min(Math.sqrt((m - 1) / 29), 1.0);
+    const x = xProgress * 86 + 3;
+    // Y: log scale for proper height representation
+    const yProgress = Math.min(Math.log(m) / Math.log(30), 1.0);
+    const y = 93 - yProgress * 86;
+    return { x, y, xProgress };
   };
 
   const drawPath = () => {
-    if (status === 'WAITING') return 'M 0 93 L 2 93';
+    if (status === 'WAITING') return 'M 0 93 L 3 93';
     const mult = parseFloat(multiplier);
     const { x, y } = getCurvePos(mult);
-    // Cubic bezier: horizontal takeoff, smooth upward sweep
-    return `M 0 93 C ${x * 0.25} 93, ${x * 0.65} ${y + 18}, ${x} ${y}`;
+    return `M 0 93 C ${x * 0.2} 93, ${x * 0.6} ${y + 20}, ${x} ${y}`;
   };
 
   const planePos = () => {
-    if (status === 'WAITING') return { x: 2, y: 93, rotate: 0 };
+    if (status === 'WAITING') return { x: 3, y: 93, rotate: 0 };
     const mult = parseFloat(multiplier);
-    const { x, y, progress } = getCurvePos(mult);
-    return { x, y, rotate: -Math.min(progress * 40, 38) };
+    const { x, y, xProgress } = getCurvePos(mult);
+    return { x, y, rotate: -Math.min(xProgress * 42, 40) };
   };
 
   const pos = planePos();

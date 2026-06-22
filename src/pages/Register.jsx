@@ -11,6 +11,15 @@ export default function Register({ onLogin }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!username || !password || !phone) {
+      return setError('All fields are required');
+    }
+
+    const phoneRegex = /^(?:254|\+254|0)?((?:7|1)(?:(?:[0-9][0-9])|[0-9])\d{6})$/;
+    if (!phoneRegex.test(phone)) {
+      return setError('Please enter a valid Kenyan phone number (e.g. 0712345678 or +254712345678)');
+    }
+
     setError('');
     setLoading(true);
 

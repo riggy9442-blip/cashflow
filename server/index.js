@@ -4,7 +4,9 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import bcrypt from 'bcrypt';
 import GameState from './gameLogic.js';
+import { getDb } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,9 +23,6 @@ const io = new Server(server, {
   }
 });
 
-// Mock Database
-const users = new Map(); // username -> { password, balance }
-
 // Initialize Game
 const game = new GameState(io);
 
@@ -37,19 +36,35 @@ io.on('connection', (socket) => {
   socket.emit('gameState', game.getState());
   socket.emit('chatHistory', chatHistory);
 
-  socket.on('placeBet', ({ username, amount }) => {
-    // Check balance logic here ideally, but mocking it
-    if (game.placeBet(username, amount)) {
-      socket.emit('betConfirmed', amount);
-    } else {
-      socket.emit('betFailed', 'Could not place bet');
+  socket.on('placeBet', async ({ username, amount }) => {
+    try {
+      const db = await getDb();
+      const user = await db.get('SELECT balance FROM users WHERE username = ?', [username]);
+      if (!user || user.balance < amount) {
+        return socket.emit('betFailed', 'Insufficient balance');
+      }
+
+      if (game.placeBet(username, amount)) {
+        await db.run('UPDATE users SET balance = balance - ? WHERE username = ?', [amount, username]);
+        socket.emit('betConfirmed', amount);
+      } else {
+        socket.emit('betFailed', 'Could not place bet');
+      }
+    } catch (error) {
+      socket.emit('betFailed', 'Server error');
     }
   });
 
-  socket.on('cashOut', (username) => {
+  socket.on('cashOut', async (username) => {
     const winnings = game.cashOut(username);
     if (winnings !== false) {
-      socket.emit('cashOutSuccess', winnings);
+      try {
+        const db = await getDb();
+        await db.run('UPDATE users SET balance = balance + ? WHERE username = ?', [winnings, username]);
+        socket.emit('cashOutSuccess', winnings);
+      } catch (error) {
+        console.error('Failed to update balance on cashout', error);
+      }
     }
   });
 
@@ -65,38 +80,72 @@ io.on('connection', (socket) => {
   });
 });
 
-// Auth Routes (Mock)
-app.post('/api/register', (req, res) => {
-  const { username, password } = req.body;
-  if (users.has(username)) {
-    return res.status(400).json({ error: 'Username already exists' });
+// Auth Routes
+app.post('/api/register', async (req, res) => {
+  const { username, password, phone } = req.body;
+
+  // Server-side Kenyan phone validation
+  const phoneRegex = /^(?:254|\+254|0)?((?:7|1)(?:(?:[0-9][0-9])|[0-9])\d{6})$/;
+  if (!phoneRegex.test(phone)) {
+    return res.status(400).json({ error: 'Invalid Kenyan phone number' });
   }
-  // KSH 500 bonus
-  users.set(username, { password, balance: 500 });
-  res.json({ success: true, username, balance: 500 });
+
+  try {
+    const db = await getDb();
+    const existing = await db.get('SELECT username FROM users WHERE username = ? OR phone = ?', [username, phone]);
+    if (existing) {
+      return res.status(400).json({ error: 'Username or phone already exists' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    // KSH 500 bonus applied automatically via DB default
+    await db.run(
+      'INSERT INTO users (username, phone, password) VALUES (?, ?, ?)',
+      [username, phone, hashedPassword]
+    );
+    
+    res.json({ success: true, username, balance: 500 });
+  } catch (error) {
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
-  const user = users.get(username);
-  if (!user || user.password !== password) {
-    return res.status(401).json({ error: 'Invalid credentials' });
+  try {
+    const db = await getDb();
+    const user = await db.get('SELECT * FROM users WHERE username = ?', [username]);
+    
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    res.json({ success: true, username, balance: user.balance });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
   }
-  res.json({ success: true, username, balance: user.balance });
 });
 
-// M-Pesa Withdrawal Route (Mock)
-app.post('/api/withdraw', (req, res) => {
+// M-Pesa Withdrawal Route
+app.post('/api/withdraw', async (req, res) => {
   const { username, amount, phoneNumber } = req.body;
-  const user = users.get(username);
-  if (!user || user.balance < amount) {
-    return res.status(400).json({ error: 'Insufficient balance' });
+  
+  try {
+    const db = await getDb();
+    const user = await db.get('SELECT balance FROM users WHERE username = ?', [username]);
+    
+    if (!user || user.balance < amount) {
+      return res.status(400).json({ error: 'Insufficient balance' });
+    }
+    
+    await db.run('UPDATE users SET balance = balance - ? WHERE username = ?', [amount, username]);
+    
+    // Simulate M-Pesa API delay
+    setTimeout(() => {
+      res.json({ success: true, message: `KSH ${amount} sent to ${phoneNumber} via M-Pesa`, newBalance: user.balance - amount });
+    }, 1500);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
   }
-  user.balance -= amount;
-  // Simulate M-Pesa API delay
-  setTimeout(() => {
-    res.json({ success: true, message: `KSH ${amount} sent to ${phoneNumber} via M-Pesa`, newBalance: user.balance });
-  }, 1500);
 });
 
 // Serve frontend static files

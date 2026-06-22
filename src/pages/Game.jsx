@@ -100,7 +100,7 @@ export default function Game({ user, onUpdateBalance }) {
   };
 
   const cashOut = () => {
-    socket.emit('cashOut');
+    socket.emit('cashOut', userRef.current.username);
   };
 
   const sendChat = (e) => {

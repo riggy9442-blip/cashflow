@@ -39,15 +39,15 @@ io.on('connection', (socket) => {
 
   socket.on('placeBet', ({ username, amount }) => {
     // Check balance logic here ideally, but mocking it
-    if (game.placeBet(socket.id, username, amount)) {
+    if (game.placeBet(username, amount)) {
       socket.emit('betConfirmed', amount);
     } else {
       socket.emit('betFailed', 'Could not place bet');
     }
   });
 
-  socket.on('cashOut', () => {
-    const winnings = game.cashOut(socket.id);
+  socket.on('cashOut', (username) => {
+    const winnings = game.cashOut(username);
     if (winnings !== false) {
       socket.emit('cashOutSuccess', winnings);
     }

@@ -89,10 +89,10 @@ class GameState {
     }, 3000);
   }
 
-  placeBet(socketId, username, amount) {
+  placeBet(username, amount) {
     if (this.status !== 'WAITING') return false;
     
-    this.players.set(socketId, {
+    this.players.set(username, {
       username,
       betAmount: amount,
       cashedOut: false,
@@ -103,10 +103,10 @@ class GameState {
     return true;
   }
 
-  cashOut(socketId) {
+  cashOut(username) {
     if (this.status !== 'IN_PROGRESS') return false;
     
-    const player = this.players.get(socketId);
+    const player = this.players.get(username);
     if (!player || player.cashedOut) return false;
     
     player.cashedOut = true;
